@@ -1,0 +1,18 @@
+=== СПИСОК ФАЙЛОВ ДЛЯ ВЫГРУЗКИ НА СЕРВЕР (ИЗМЕНЕНИЯ СЕГОДНЯ) ===
+
+Выгрузите данные файлы и папки из локальной папки в папку "/var/www/price_bot/" на сервере (замените старые версии):
+
+1. index.js
+2. public/index.html
+3. public/map.html
+4. public/login.html  [НОВЫЙ ФАЙЛ]
+5. migrations/20260609124800_create_users_table.js  [НОВАЯ МИГРАЦИЯ]
+6. migrations/20260609094748_add_name_and_phone_to_users.js  [НОВАЯ МИГРАЦИЯ]
+7. docker-compose.yml
+8. Dockerfile
+
+После выгрузки файлов на сервере необходимо пересобрать Docker-контейнер для применения изменений кода и автоматического запуска новых миграций SQLite:
+
+cd /var/www/price_bot
+docker compose down
+docker compose up -d --build

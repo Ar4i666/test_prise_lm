@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: price-list-service
+    restart: always
+    command: sh -c "npm run migrate && npm start"
+    ports:
+      - "3099:3099"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./database.sqlite:/usr/src/app/database.sqlite
+      - ./credentials.json:/usr/src/app/credentials.json
+      - ./.env:/usr/src/app/.env
+      - ./public/uploads:/usr/src/app/public/uploads
+    environment:
+      - NODE_ENV=production

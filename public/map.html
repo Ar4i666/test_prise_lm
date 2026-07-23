@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Интерактивная карта секторов - LiftMedia</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        emerald: {
+                            50: '#e6fbf8',
+                            100: '#cdfaee',
+                            200: '#9cf3dd',
+                            300: '#60e6c8',
+                            400: '#2dcfaf',
+                            500: '#00c0a5',
+                            600: '#009782',
+                            700: '#00796b',
+                            800: '#005f54',
+                            900: '#004f46',
+                            950: '#002e29',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Leaflet.js Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        html, body {
+            height: 100dvh;
+            width: 100vw;
+            overflow: hidden;
+            position: fixed;
+        }
+        .glass {
+            background: rgba(17, 24, 39, 0.8);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        [x-cloak] { display: none !important; }
+        
+        /* Custom Leaflet Dark Popup Styles */
+        .leaflet-popup-content-wrapper {
+            background: rgba(17, 24, 39, 0.95) !important;
+            backdrop-filter: blur(8px) !important;
+            color: #f3f4f6 !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 1rem !important;
+            padding: 0 !important;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.4) !important;
+        }
+        .leaflet-popup-content {
+            width: 280px !important;
+            margin: 0 !important;
+            line-height: inherit !important;
+        }
+        .leaflet-popup-tip {
+            background: rgba(17, 24, 39, 0.95) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #9ca3af !important;
+            padding: 8px 8px 0 0 !important;
+            font-size: 16px !important;
+        }
+        .leaflet-container a.leaflet-popup-close-button:hover {
+            color: #ffffff !important;
+        }
+
+        /* Marker Styles */
+        .monitor-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
+        }
+        .marker-inner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            background: rgba(17, 24, 39, 0.95);
+            border: 2px solid #10b981;
+            border-radius: 50%;
+            color: #ffffff;
+            font-weight: 700;
+            font-size: 11px;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s;
+        }
+        .monitor-marker:hover .marker-inner {
+            transform: scale(1.25);
+            box-shadow: 0 0 16px rgba(255, 255, 255, 0.45);
+        }
+        .marker-inner-business {
+            border-color: #00c0a5; /* corporate green */
+            box-shadow: 0 0 12px rgba(0, 192, 165, 0.7);
+        }
+        .marker-inner-comfort {
+            border-color: #3b82f6; /* blue-500 */
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.7);
+        }
+        .marker-inner-other {
+            border-color: #a855f7; /* purple-500 */
+            box-shadow: 0 0 12px rgba(168, 85, 247, 0.7);
+        }
+        
+        /* 2GIS dark tiles styling using CSS filter - grayscaled to neutralize POI clutter and make user markers stand out */
+        .dark-tiles {
+            filter: invert(100%) grayscale(100%) brightness(75%) contrast(105%);
+        }
+        #map {
+            background: #090d16 !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 h-[100dvh] w-screen overflow-hidden flex flex-col md:flex-row" x-data="mapApp()" @enlarge-photo.window="enlargedPhotoUrl = $event.detail">
+
+    <!-- Toggle Sidebar Button (Client Mode / Share Mode floating button) -->
+    <button @click="showSidebar = !showSidebar" 
+            class="absolute top-4 left-4 z-[1000] p-3 rounded-xl glass text-white hover:bg-gray-800/80 transition-all flex items-center justify-center shadow-2xl"
+            title="Показать / скрыть панель">
+        <svg class="w-6 h-6 transition-transform" :class="showSidebar ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" x-show="!showSidebar"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" x-show="showSidebar"></path>
+        </svg>
+    </button>
+
+    <!-- Sidebar Panel -->
+    <aside x-show="showSidebar" 
+           x-transition:enter="transition ease-out duration-300 transform"
+           x-transition:enter-start="-translate-x-full"
+           x-transition:enter-end="translate-x-0"
+           x-transition:leave="transition ease-in duration-300 transform"
+           x-transition:leave-start="translate-x-0"
+           x-transition:leave-end="-translate-x-full"
+           class="fixed md:relative inset-y-0 left-0 w-full md:w-[420px] h-[100dvh] md:h-full z-[990] flex flex-col glass border-r border-gray-800 shrink-0 pt-16">
+        
+        <!-- Header -->
+        <div class="px-6 pb-4 border-b border-gray-800/60">
+            <div class="flex items-center gap-2 mb-1">
+                <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+                <span class="text-xs uppercase tracking-widest text-emerald-400 font-semibold">Адресная программа</span>
+            </div>
+            <h1 class="text-2xl font-extrabold text-white bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                Карта Сетей LiftMedia
+            </h1>
+            <p class="text-xs text-gray-400 mt-1">Выберите необходимые районы и секторы для оценки охвата и стоимости.</p>
+        </div>
+
+        <!-- Search & Quick Selection -->
+        <div class="p-4 bg-gray-900/40 border-b border-gray-800/40 flex flex-col gap-3">
+            <div class="relative">
+                <input type="text" x-model="searchQuery" placeholder="Поиск сектора..." 
+                       class="w-full bg-gray-950/80 border border-gray-800 rounded-xl px-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition-all">
+                <svg class="w-4 h-4 absolute right-3.5 top-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+            </div>
+            
+            <div class="flex justify-between items-center text-xs text-gray-400">
+                <button @click="selectAllSectors(true)" class="hover:text-emerald-400 transition-colors font-medium">Выбрать все</button>
+                <span class="text-gray-700">|</span>
+                <button @click="selectAllSectors(false)" class="hover:text-rose-400 transition-colors font-medium">Сбросить выбор</button>
+            </div>
+        </div>
+
+        <!-- Search & Radius Filter Panel (Only for authorized users, hidden in sharedMode) -->
+        <div x-show="!sharedMode" class="p-4 bg-gray-900/40 border-b border-gray-800/40 flex flex-col gap-4">
+            <div class="flex items-center justify-between">
+                <span class="text-xs font-semibold text-gray-300 uppercase tracking-wider">Поиск по радиусу</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" x-model="radiusFilterActive" @change="toggleRadiusFilter()" class="sr-only peer">
+                    <div class="w-9 h-5 bg-gray-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-gray-400 after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500 peer-checked:after:bg-gray-950"></div>
+                </label>
+            </div>
+            
+            <div x-show="radiusFilterActive" x-transition class="space-y-4" x-cloak>
+                <!-- Address Input and Button -->
+                <div class="flex gap-2">
+                    <div class="relative flex-1">
+                        <input type="text" x-model="radiusSearchAddress" @keydown.enter.prevent="searchRadiusCenter()" placeholder="Введите адрес ЖК/дома..." 
+                               class="w-full bg-gray-950/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition-all">
+                        <button x-show="radiusSearchAddress" @click="radiusSearchAddress = ''; clearRadiusSearch()" class="absolute right-2.5 top-2.5 text-gray-500 hover:text-white transition-colors">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <button @click="searchRadiusCenter()" :disabled="radiusGeocoding" 
+                            class="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-gray-950 font-bold px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shrink-0">
+                        <svg x-show="radiusGeocoding" class="animate-spin h-3.5 w-3.5 text-gray-950" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span x-text="radiusGeocoding ? 'Ищем' : 'Найти'"></span>
+                    </button>
+                </div>
+
+                <!-- Geocoding Error Message -->
+                <div x-show="radiusGeocodingError" class="text-rose-400 text-[10px] px-1" x-text="radiusGeocodingError"></div>
+
+                <!-- Slider for Radius -->
+                <div class="space-y-2">
+                    <div class="flex justify-between items-center text-xs text-gray-400">
+                        <span>Радиус поиска:</span>
+                        <span class="text-emerald-400 font-bold font-mono" x-text="formatRadiusText(radiusMeters)">1.5 км</span>
+                    </div>
+                    <input type="range" min="500" max="10000" step="100" x-model="radiusMeters" @input="updateRadiusCircle()" 
+                           class="w-full h-1 bg-gray-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                    <div class="flex justify-between text-[9px] text-gray-600 uppercase font-mono">
+                        <span>500 м</span>
+                        <span>1.5 км</span>
+                        <span>5 км</span>
+                        <span>10 км</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sector List -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+            <template x-for="city in getGroupedSectors()" :key="city.name">
+                <div class="space-y-2">
+                    <h3 class="text-xs font-bold text-gray-500 uppercase tracking-widest px-2" x-text="city.name"></h3>
+                    <div class="space-y-1">
+                        <template x-for="sector in city.sectors" :key="sector.key">
+                            <label :class="isSectorSelected(sector.key) ? 'bg-gray-800/60 border-emerald-500/20 text-white' : 'hover:bg-gray-900/40 border-transparent text-gray-400'"
+                                   class="flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer group">
+                                <div class="flex items-center gap-3">
+                                    <input type="checkbox" 
+                                           :checked="isSectorSelected(sector.key)"
+                                           @change="toggleSector(sector.key)"
+                                           class="w-4.5 h-4.5 text-emerald-600 bg-gray-950 border-gray-800 rounded focus:ring-emerald-500 focus:ring-2 focus:ring-offset-gray-900">
+                                    <div>
+                                        <span class="text-sm font-semibold transition-colors group-hover:text-white" x-text="sector.sheet_sector_name"></span>
+                                        <span class="block text-[10px] text-gray-500" x-text="`${sector.housesCount} домок • ${sector.monitorsCount} монит.`"></span>
+                                    </div>
+                                </div>
+                                <span :class="isSectorSelected(sector.key) ? 'text-emerald-400' : 'text-gray-500 group-hover:text-gray-400'"
+                                      class="text-sm font-bold font-mono" x-text="formatPrice(sector.price)"></span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            <div x-show="getGroupedSectors().length === 0" class="text-center py-8 text-gray-500 text-sm">
+                Секторы не найдены
+            </div>
+        </div>
+
+        <!-- Sticky Footer: Summary & Share -->
+        <div class="p-6 bg-gray-900/80 border-t border-gray-800/80 space-y-4">
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="bg-gray-950/40 rounded-lg p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[10px] uppercase">Домов</span>
+                    <span class="text-base font-bold text-white font-mono" x-text="totals.houses">0</span>
+                </div>
+                <div class="bg-gray-950/40 rounded-lg p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[10px] uppercase">Подъездов</span>
+                    <span class="text-base font-bold text-white font-mono" x-text="totals.entrances">0</span>
+                </div>
+                <div class="bg-gray-950/40 rounded-lg p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[10px] uppercase">Мониторов</span>
+                    <span class="text-base font-bold text-emerald-400 font-mono" x-text="totals.monitors">0</span>
+                </div>
+            </div>
+
+            <!-- Price -->
+            <div x-show="!sharedMode" class="bg-gradient-to-r from-blue-950/40 to-emerald-950/40 rounded-2xl p-4 border border-emerald-500/20 flex justify-between items-center">
+                <div>
+                    <span class="text-xs text-gray-400 font-medium">Общая стоимость</span>
+                    <span class="block text-[10px] text-gray-500">За выбранные секторы</span>
+                </div>
+                <div class="text-right">
+                    <span class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300 font-mono" x-text="formatPrice(totals.price)">0 ₸</span>
+                </div>
+            </div>
+
+            <!-- Share Button -->
+            <button @click="generateShareLink()" 
+                    class="w-full bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-gray-950 font-bold py-3 px-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.684 10.742l5.053-2.527m0 7.57l-5.053-2.527m9.972-2.527c0 1.58-1.282 2.864-2.864 2.864s-2.864-1.282-2.864-2.864 1.282-2.864 2.864-2.864 2.864 1.282 2.864 2.864zm-14.286 7.57c0 1.58-1.282 2.863-2.864 2.863s-2.864-1.282-2.864-2.863 1.282-2.863 2.864-2.863 2.864 1.282 2.864 2.863zm0-15.14c0 1.58-1.282 2.864-2.864 2.864S1.282 5.282 2.864 5.282s2.864 1.282 2.864 2.864z"></path>
+                </svg>
+                Поделиться картой
+            </button>
+        </div>
+    </aside>
+
+    <!-- Map Area -->
+    <main class="flex-1 h-full relative z-[10]">
+        <div id="map" class="w-full h-full bg-gray-950"></div>
+
+        <!-- Floating User Profile Widget (Top Right, only if not in sharedMode) -->
+        <div x-show="!sharedMode && username" 
+             class="absolute top-4 right-16 z-[1000] bg-gray-900/95 border border-gray-800 rounded-2xl p-3 shadow-2xl flex items-center gap-3 backdrop-blur-md"
+             x-cloak>
+            <div class="flex-shrink-0">
+                <div class="w-8 h-8 rounded-lg bg-gradient-to-r from-blue-500/20 to-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm select-none" x-text="username ? username[0].toUpperCase() : 'U'">
+                </div>
+            </div>
+            <div class="text-left">
+                <p class="text-xs font-bold text-white leading-none mb-0.5" x-text="username"></p>
+                <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-gray-950 border"
+                      :class="{
+                          'text-red-400 border-red-500/30 bg-red-950/20': userRole === 'admin',
+                          'text-amber-400 border-amber-500/30 bg-amber-950/20': userRole === 'supervisor',
+                          'text-blue-400 border-blue-500/30 bg-blue-950/20': userRole === 'manager'
+                      }"
+                      x-text="userRole === 'admin' ? 'Админ' : (userRole === 'supervisor' ? 'Супервайзер' : 'Менеджер ОП')">
+                </span>
+            </div>
+            <button @click="logout()" class="p-1.5 bg-gray-950 border border-gray-800 hover:border-rose-500/40 hover:bg-rose-950/30 text-gray-400 hover:text-rose-400 rounded-lg transition-all" title="Выйти">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Floating Client Summary Card (Shows when sidebar is closed) -->
+        <div x-show="!showSidebar" 
+             x-transition:enter="transition ease-out duration-300 transform"
+             x-transition:enter-start="opacity-0 translate-y-4"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             class="absolute bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 z-[1000] glass rounded-2xl p-5 shadow-2xl border border-gray-800 flex flex-col gap-4">
+            
+            <div class="flex justify-between items-start">
+                <div>
+                    <h2 class="text-lg font-bold text-white">Выбранная сеть</h2>
+                    <p class="text-xs text-gray-400 mt-0.5" x-text="`${selectedSectors.length} сект. выбрано`"></p>
+                </div>
+                <button @click="showSidebar = true" class="text-xs text-emerald-400 font-semibold hover:text-emerald-300 transition-colors bg-emerald-950/30 border border-emerald-500/20 px-3 py-1.5 rounded-lg">
+                    Изменить
+                </button>
+            </div>
+
+            <!-- Stats Mini Grid -->
+            <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                <div class="bg-gray-950/60 rounded-xl p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[9px] uppercase">Домов</span>
+                    <span class="text-sm font-bold text-white font-mono" x-text="totals.houses">0</span>
+                </div>
+                <div class="bg-gray-950/60 rounded-xl p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[9px] uppercase">Подъездов</span>
+                    <span class="text-sm font-bold text-white font-mono" x-text="totals.entrances">0</span>
+                </div>
+                <div class="bg-gray-950/60 rounded-xl p-2 border border-gray-800/40">
+                    <span class="text-gray-500 block text-[9px] uppercase">Мониторов</span>
+                    <span class="text-sm font-bold text-emerald-400 font-mono" x-text="totals.monitors">0</span>
+                </div>
+            </div>
+
+            <!-- Price Mini Box -->
+            <div x-show="!sharedMode" class="bg-gradient-to-r from-blue-950/40 to-emerald-950/40 rounded-xl p-3.5 border border-emerald-500/20 flex justify-between items-center">
+                <span class="text-xs font-semibold text-gray-300">Итоговая стоимость:</span>
+                <span class="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300 font-mono" x-text="formatPrice(totals.price)">0 ₸</span>
+            </div>
+        </div>
+    </main>
+
+    <!-- Toast Notification -->
+    <div x-show="toastVisible" 
+         x-transition:enter="transition ease-out duration-300 transform"
+         x-transition:enter-start="opacity-0 translate-y-8"
+         x-transition:enter-end="opacity-100 translate-y-0"
+         x-transition:leave="transition ease-in duration-200 transform"
+         x-transition:leave-start="opacity-100 translate-y-0"
+         x-transition:leave-end="opacity-0 translate-y-8"
+         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] bg-gray-900 border border-emerald-500/30 text-white px-6 py-3.5 rounded-xl shadow-2xl flex items-center gap-3 backdrop-blur-md"
+         x-cloak>
+        <div class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></div>
+        <span class="text-sm font-medium" x-text="toastMessage"></span>
+    </div>
+
+    <!-- Enlarged Photo Lightbox Modal -->
+    <div x-show="enlargedPhotoUrl" 
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100 scale-100"
+         x-transition:leave-end="opacity-0 scale-95"
+         class="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
+         @click="enlargedPhotoUrl = null"
+         @keydown.escape.window="enlargedPhotoUrl = null"
+         x-cloak>
+        
+        <!-- Close Button -->
+        <button class="absolute top-4 right-4 text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2.5 transition-all">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+        </button>
+
+        <!-- Image -->
+        <img :src="enlargedPhotoUrl" class="max-w-full max-h-full rounded-2xl shadow-2xl border border-white/10 object-contain" alt="Увеличенное фото здания">
+    </div>
+
+    <!-- Script Application -->
+    <script>
+        function mapApp() {
+            return {
+                map: null,
+                markerGroup: null,
+                loading: false,
+                sectors: [],
+                houses: [],
+                selectedSectors: [],
+                searchQuery: '',
+                showSidebar: window.innerWidth >= 768,
+                sharedMode: false,
+                toastVisible: false,
+                toastMessage: '',
+                enlargedPhotoUrl: null,
+                totals: {
+                    houses: 0,
+                    entrances: 0,
+                    monitors: 0,
+                    price: 0
+                },
+                userRole: '',
+                username: '',
+                
+                // Radius Search State
+                radiusFilterActive: false,
+                radiusSearchAddress: '',
+                radiusGeocoding: false,
+                radiusGeocodingError: '',
+                radiusMeters: 1500, // Default 1.5km
+                radiusCenterLat: null,
+                radiusCenterLng: null,
+                
+                // Leaflet objects for radius
+                leafletRadiusCircle: null,
+                leafletRadiusCenterMarker: null,
+
+                async init() {
+                    // 1. Initialize Map
+                    this.map = L.map('map', {
+                        zoomControl: false,
+                        attributionControl: false,
+                        tap: false,
+                        maxZoom: 19
+                    }).setView([43.238949, 76.945412], 12); // Default to Almaty coordinates
+
+                    // Add Zoom Control to the top right instead of top left
+                    L.control.zoom({ position: 'topright' }).addTo(this.map);
+
+                    // Fetch config for 2GIS API Key
+                    let twogisKey = '';
+                    try {
+                        const configRes = await fetch('/api/config');
+                        const configData = await configRes.json();
+                        if (configData.success) {
+                            twogisKey = configData.twogis_api_key || '';
+                        }
+                    } catch (e) {
+                        console.error('Ошибка загрузки конфигурации:', e);
+                    }
+
+                    // 2GIS dark tiles — uses CSS filter for custom dark styling
+                    let tileUrl = 'https://tile{s}.maps.2gis.com/tiles?x={x}&y={y}&z={z}';
+                    let tileOptions = {
+                        maxZoom: 19,
+                        maxNativeZoom: 18,
+                        subdomains: '0123',
+                        className: 'dark-tiles',
+                        attribution: '© 2GIS'
+                    };
+
+                    if (twogisKey) {
+                        // Official high-resolution 2GIS tiles if key is provided
+                        tileUrl = 'https://tile{s}.maps.2gis.com/v2/tiles/online_hd/{z}/{x}/{y}.png?key=' + encodeURIComponent(twogisKey);
+                        tileOptions.subdomains = '0123';
+                    }
+
+                    L.tileLayer(tileUrl, tileOptions).addTo(this.map);
+
+                    this.markerGroup = L.featureGroup().addTo(this.map);
+
+                    // 2. Fetch Data
+                    await this.fetchData();
+
+                    // Check user info if not in shared link view
+                    const urlParams = new URLSearchParams(window.location.search);
+                    let sharedSectors = urlParams.get('s');
+                    const shortCode = urlParams.get('c');
+                    
+                    if (shortCode) {
+                        try {
+                            const res = await fetch(`/api/share-map/${shortCode}`);
+                            const data = await res.json();
+                            if (data.success) {
+                                sharedSectors = data.sectors;
+                            }
+                        } catch (e) {
+                            console.error('Ошибка загрузки короткой ссылки:', e);
+                        }
+                    }
+
+                    if (!sharedSectors) {
+                        try {
+                            const userRes = await fetch('/api/user-info');
+                            const userData = await userRes.json();
+                            if (userData.success) {
+                                this.userRole = userData.user.role;
+                                this.username = userData.user.username;
+                            }
+                        } catch (e) {
+                            console.error('Error fetching user info:', e);
+                        }
+                    }
+
+                    if (sharedSectors) {
+                        this.sharedMode = true;
+
+                        // Parse values, format: "City:Sector,City2:Sector2"
+                        const parsed = sharedSectors.split(',').map(item => {
+                            const decoded = decodeURIComponent(item);
+                            // Replace first colon back to pipe
+                            const colonIndex = decoded.indexOf(':');
+                            if (colonIndex !== -1) {
+                                return decoded.substring(0, colonIndex) + '|' + decoded.substring(colonIndex + 1);
+                            }
+                            return decoded;
+                        });
+
+                        this.selectedSectors = parsed.filter(key => {
+                            return this.sectors.some(s => `${s.sheet_name}|${s.sheet_sector_name}` === key);
+                        });
+                    } else {
+                        // Select all mapped sectors by default if not a shared link
+                        this.selectedSectors = this.sectors
+                            .filter(s => s.is_mapped)
+                            .map(s => `${s.sheet_name}|${s.sheet_sector_name}`);
+                    }
+
+                    // 3.5. Watch showSidebar to invalidate map size after CSS transition ends
+                    this.$watch('showSidebar', () => {
+                        // 400ms covers the 300ms slide animation + buffer
+                        setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 400);
+                    });
+
+                    // 4. Update view
+                    this.updateMapAndStats();
+
+                    // 5. For shared links: hide sidebar AFTER map is ready so invalidateSize fires correctly
+                    if (sharedSectors) {
+                        // Small delay so the map has rendered at full width first, then collapse
+                        setTimeout(() => {
+                            this.showSidebar = false;
+                            // Give the CSS transition time to finish, then re-fit the bounds
+                            setTimeout(() => {
+                                if (this.map) {
+                                    this.map.invalidateSize();
+                                    if (this.markerGroup && this.markerGroup.getLayers().length > 0) {
+                                        this.map.fitBounds(this.markerGroup.getBounds(), { padding: [50, 50] });
+                                    }
+                                }
+                            }, 450);
+                        }, 100);
+                    }
+                },
+
+                async fetchData() {
+                    this.loading = true;
+                    try {
+                        // Fetch sectors
+                        const sectorRes = await fetch('/api/sectors');
+                        const sectorData = await sectorRes.json();
+                        if (sectorData.success) {
+                            this.sectors = sectorData.data;
+                        }
+
+                        // Fetch price list (all houses with coordinates)
+                        const priceRes = await fetch('/api/price-list');
+                        const priceData = await priceRes.json();
+                        if (priceData.success) {
+                            this.houses = priceData.data;
+                        }
+                    } catch (e) {
+                        console.error('Ошибка при загрузке данных карты:', e);
+                        this.showToast('Ошибка загрузки данных с сервера');
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                getGroupedSectors() {
+                    // Filter sectors based on search query
+                    const query = this.searchQuery.toLowerCase().trim();
+                    const filtered = this.sectors.filter(s => {
+                        if (!s.is_mapped) return false;
+                        const matchText = `${s.sheet_name} ${s.sheet_sector_name}`.toLowerCase();
+                        return matchText.includes(query);
+                    });
+
+                    // Add additional statistics (house and monitor counts) for each sector
+                    const enriched = filtered.map(s => {
+                        const key = `${s.sheet_name}|${s.sheet_sector_name}`;
+                        const housesInSector = this.houses.filter(h => 
+                            h.sheet_name === s.sheet_name && 
+                            h.sheet_sector_name === s.sheet_sector_name &&
+                            h.latitude !== null && h.longitude !== null
+                        );
+                        
+                        return {
+                            ...s,
+                            key,
+                            housesCount: housesInSector.length,
+                            monitorsCount: housesInSector.reduce((sum, h) => sum + (h.actual_monitors || 0), 0)
+                        };
+                    });
+
+                    // Group by city (sheet_name)
+                    const groups = {};
+                    enriched.forEach(s => {
+                        if (!groups[s.sheet_name]) {
+                            groups[s.sheet_name] = [];
+                        }
+                        groups[s.sheet_name].push(s);
+                    });
+
+                    return Object.keys(groups).map(cityName => ({
+                        name: cityName,
+                        sectors: groups[cityName]
+                    }));
+                },
+
+                isSectorSelected(key) {
+                    return this.selectedSectors.includes(key);
+                },
+
+                toggleSector(key) {
+                    const idx = this.selectedSectors.indexOf(key);
+                    if (idx === -1) {
+                        this.selectedSectors.push(key);
+                    } else {
+                        this.selectedSectors.splice(idx, 1);
+                    }
+                    this.updateMapAndStats();
+                },
+
+                selectAllSectors(select) {
+                    if (select) {
+                        this.selectedSectors = this.sectors
+                            .filter(s => s.is_mapped)
+                            .map(s => `${s.sheet_name}|${s.sheet_sector_name}`);
+                    } else {
+                        this.selectedSectors = [];
+                    }
+                    this.updateMapAndStats();
+                },
+
+                updateMapAndStats() {
+                    // 1. Calculate Statistics
+                    let countHouses = 0;
+                    let countEntrances = 0;
+                    let countMonitors = 0;
+                    let countPrice = 0;
+
+                    // Filter houses that belong to active selected sectors and are within radius (if active)
+                    const activeHouses = this.houses.filter(h => {
+                        const key = `${h.sheet_name}|${h.sheet_sector_name}`;
+                        const isSelected = this.selectedSectors.includes(key);
+                        if (!isSelected) return false;
+
+                        // Radius filter (only if not in sharedMode and radius filter is active)
+                        if (!this.sharedMode && this.radiusFilterActive && this.radiusCenterLat && this.radiusCenterLng) {
+                            if (h.latitude === null || h.longitude === null) return false;
+                            
+                            // Distance calculation in meters
+                            const distance = L.latLng(h.latitude, h.longitude).distanceTo(L.latLng(this.radiusCenterLat, this.radiusCenterLng));
+                            return distance <= parseInt(this.radiusMeters);
+                        }
+                        
+                        return true;
+                    });
+
+                    activeHouses.forEach(h => {
+                        if (h.latitude !== null && h.longitude !== null) {
+                            countHouses++;
+                            countEntrances += (h.entrances || 0);
+                            countMonitors += (h.actual_monitors || 0);
+                        }
+                    });
+
+                    // Calculate total price based on selected sectors that actually have houses in activeHouses
+                    const activeSectorsKeys = new Set(activeHouses.map(h => `${h.sheet_name}|${h.sheet_sector_name}`));
+
+                    this.selectedSectors.forEach(key => {
+                        // If radius filter is active, only include sector in price if it has houses in the circle
+                        if (!this.sharedMode && this.radiusFilterActive && this.radiusCenterLat && this.radiusCenterLng && !activeSectorsKeys.has(key)) {
+                            return;
+                        }
+
+                        const sector = this.sectors.find(s => `${s.sheet_name}|${s.sheet_sector_name}` === key);
+                        if (sector) {
+                            countPrice += (sector.price || 0);
+                        }
+                    });
+
+                    this.totals.houses = countHouses;
+                    this.totals.entrances = countEntrances;
+                    this.totals.monitors = countMonitors;
+                    this.totals.price = countPrice;
+
+                    // 2. Render Markers
+                    this.markerGroup.clearLayers();
+
+                    activeHouses.forEach(h => {
+                        if (h.latitude === null || h.longitude === null) return;
+
+                        // Identify marker color based on sector type (Comfort vs Business)
+                        let innerClass = 'marker-inner-other';
+                        const sectorName = (h.sheet_sector_name || '').toLowerCase();
+                        if (sectorName.includes('бизнес') || sectorName.includes('business')) {
+                            innerClass = 'marker-inner-business';
+                        } else if (sectorName.includes('комфорт') || sectorName.includes('comfort')) {
+                            innerClass = 'marker-inner-comfort';
+                        }
+
+                        const customIcon = L.divIcon({
+                            className: 'monitor-marker',
+                            html: `<div class="marker-inner ${innerClass}"><span>${h.actual_monitors || 0}</span></div>`,
+                            iconSize: [28, 28],
+                            iconAnchor: [14, 14]
+                        });
+
+                        const photoImg = h.photo_url 
+                            ? `<div class="w-full h-32 rounded-lg overflow-hidden border border-gray-800 bg-gray-950 mb-1 cursor-zoom-in group/img relative" onclick="window.dispatchEvent(new CustomEvent('enlarge-photo', { detail: '${h.photo_url}' }))">
+                                 <img src="${h.photo_url}" class="w-full h-full object-cover transition-transform duration-300 group-hover/img:scale-105" alt="${h.sheet_house_name}">
+                                 <div class="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                                    </svg>
+                                 </div>
+                               </div>`
+                            : '';
+
+                        const popupHtml = `
+                            <div class="p-4 flex flex-col gap-3 w-full">
+                                ${photoImg}
+                                <div>
+                                    <h3 class="text-sm font-bold text-white leading-tight">${h.sheet_house_name}</h3>
+                                    <p class="text-xs text-gray-400 mt-1 flex items-start gap-1">
+                                        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        </svg>
+                                        <span>${h.sheet_address || 'Адрес не указан'}</span>
+                                    </p>
+                                </div>
+                                <div class="grid grid-cols-2 gap-2 text-xs border-t border-gray-800 pt-3">
+                                    <div class="bg-gray-950/40 p-2 rounded-lg border border-gray-800/30">
+                                        <span class="text-gray-500 block text-[9px] uppercase">Подъезды</span>
+                                        <span class="text-xs font-bold text-white">${h.entrances || 0}</span>
+                                    </div>
+                                    <div class="bg-gray-950/40 p-2 rounded-lg border border-gray-800/30">
+                                        <span class="text-gray-500 block text-[9px] uppercase">Квартиры</span>
+                                        <span class="text-xs font-bold text-white">${h.apartments || 0}</span>
+                                    </div>
+                                    <div class="bg-gray-950/40 p-2 rounded-lg border border-gray-800/30">
+                                        <span class="text-gray-500 block text-[9px] uppercase">Мониторы</span>
+                                        <span class="text-xs font-bold text-emerald-400 font-mono">${h.actual_monitors || 0} шт</span>
+                                    </div>
+                                    <div class="bg-gray-950/40 p-2 rounded-lg border border-gray-800/30">
+                                        <span class="text-gray-500 block text-[9px] uppercase">Сектор</span>
+                                        <span class="text-[10px] font-bold text-blue-400 truncate block" title="${h.sheet_sector_name}">${h.sheet_sector_name}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+
+                        const marker = L.marker([h.latitude, h.longitude], { icon: customIcon });
+                        marker.bindPopup(popupHtml);
+                        this.markerGroup.addLayer(marker);
+                    });
+
+                    // 3. Fit Map Bounds to show all active markers (if not filtering by radius)
+                    const skipBoundsFit = !this.sharedMode && this.radiusFilterActive && this.radiusCenterLat && this.radiusCenterLng;
+                    if (!skipBoundsFit && this.markerGroup.getLayers().length > 0) {
+                        this.map.fitBounds(this.markerGroup.getBounds(), { padding: [50, 50] });
+                    }
+                },
+
+                async generateShareLink() {
+                    if (this.selectedSectors.length === 0) {
+                        this.showToast('Выберите хотя бы один сектор');
+                        return;
+                    }
+
+                    // Format: "City:Sector,City2:Sector2"
+                    const formatted = this.selectedSectors.map(key => {
+                        // Replace pipe with colon for URL compatibility
+                        return encodeURIComponent(key.replace('|', ':'));
+                    }).join(',');
+
+                    try {
+                        const res = await fetch('/api/share-map', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sectors: formatted })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            const shareUrl = `${window.location.origin}${window.location.pathname}?c=${data.id}`;
+                            navigator.clipboard.writeText(shareUrl).then(() => {
+                                this.showToast('Короткая ссылка скопирована в буфер обмена!');
+                            }).catch(err => {
+                                console.error('Ошибка копирования ссылки:', err);
+                                this.showToast('Не удалось скопировать ссылку автоматически');
+                            });
+                        } else {
+                            this.showToast('Ошибка создания ссылки');
+                        }
+                    } catch (err) {
+                        console.error('Ошибка создания короткой ссылки:', err);
+                        this.showToast('Ошибка связи с сервером');
+                    }
+                },
+
+                formatPrice(price) {
+                    return price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " ₸";
+                },
+
+                showToast(msg) {
+                    this.toastMessage = msg;
+                    this.toastVisible = true;
+                    setTimeout(() => {
+                        this.toastVisible = false;
+                    }, 3500);
+                },
+
+                async logout() {
+                    try {
+                        const res = await fetch('/api/logout', { method: 'POST' });
+                        const data = await res.json();
+                        if (data.success) {
+                            window.location.href = '/login.html';
+                        }
+                    } catch (e) {
+                        console.error('Logout failed:', e);
+                    }
+                },
+
+                toggleRadiusFilter() {
+                    if (!this.radiusFilterActive) {
+                        this.clearRadiusSearch();
+                    } else if (this.radiusCenterLat && this.radiusCenterLng) {
+                        this.drawRadiusCircle();
+                    }
+                },
+
+                async searchRadiusCenter() {
+                    if (!this.radiusSearchAddress.trim()) return;
+                    this.radiusGeocoding = true;
+                    this.radiusGeocodingError = '';
+                    
+                    try {
+                        const selectedCities = new Set();
+                        this.selectedSectors.forEach(key => {
+                            const parts = key.split('|');
+                            if (parts.length > 0) {
+                                selectedCities.add(parts[0]);
+                            }
+                        });
+
+                        const baseUrl = `/api/geocode?address=${encodeURIComponent(this.radiusSearchAddress)}`;
+                        let finalUrl = baseUrl;
+                        if (selectedCities.size === 1) {
+                            const city = Array.from(selectedCities)[0];
+                            finalUrl = `${baseUrl}&city=${encodeURIComponent(city)}`;
+                        }
+
+                        let res = await fetch(finalUrl);
+                        let data = await res.json();
+                        
+                        // Если с ограничением по выбранному городу ничего не найдено, пробуем глобальный поиск без ограничения города
+                        if (!data.success && finalUrl !== baseUrl) {
+                            res = await fetch(baseUrl);
+                            data = await res.json();
+                        }
+
+                        if (data.success) {
+                            this.radiusCenterLat = data.latitude;
+                            this.radiusCenterLng = data.longitude;
+                            
+                            // Автоматически определяем город найденного адреса и переключаем выбранные секторы
+                            const addrLower = (data.formatted_address || '').toLowerCase();
+                            let targetCityPrefix = '';
+                            if (addrLower.includes('алматы') || addrLower.includes('almaty')) {
+                                targetCityPrefix = 'Almaty';
+                            } else if (addrLower.includes('астана') || addrLower.includes('astana') || addrLower.includes('нур-султан') || addrLower.includes('nursultan')) {
+                                targetCityPrefix = 'Astana';
+                            }
+                            
+                            if (targetCityPrefix) {
+                                const citySectors = this.sectors.filter(s => {
+                                    if (!s.is_mapped) return false;
+                                    const sheetLower = (s.sheet_name || '').toLowerCase();
+                                    if (targetCityPrefix === 'Almaty') {
+                                        return sheetLower.includes('almaty') || sheetLower.includes('алматы');
+                                    } else {
+                                        return sheetLower.includes('astana') || sheetLower.includes('астана');
+                                    }
+                                });
+                                
+                                if (citySectors.length > 0) {
+                                    this.selectedSectors = citySectors.map(s => `${s.sheet_name}|${s.sheet_sector_name}`);
+                                }
+                            }
+
+                            this.drawRadiusCircle();
+                            this.showToast('Центр поиска найден!');
+                        } else {
+                            this.radiusGeocodingError = data.message || 'Адрес не найден';
+                        }
+                    } catch (e) {
+                        console.error('Error geocoding radius search:', e);
+                        this.radiusGeocodingError = 'Ошибка при поиске адреса';
+                    } finally {
+                        this.radiusGeocoding = false;
+                    }
+                },
+
+                drawRadiusCircle() {
+                    if (!this.map || !this.radiusCenterLat || !this.radiusCenterLng) return;
+
+                    // Remove existing layers
+                    if (this.leafletRadiusCircle) this.map.removeLayer(this.leafletRadiusCircle);
+                    if (this.leafletRadiusCenterMarker) this.map.removeLayer(this.leafletRadiusCenterMarker);
+
+                    // Create circle
+                    this.leafletRadiusCircle = L.circle([this.radiusCenterLat, this.radiusCenterLng], {
+                        radius: parseInt(this.radiusMeters),
+                        color: '#10b981', // emerald-500
+                        fillColor: '#10b981',
+                        fillOpacity: 0.12,
+                        weight: 1.5,
+                        dashArray: '4, 4'
+                    }).addTo(this.map);
+
+                    // Create custom marker
+                    const centerIcon = L.divIcon({
+                        className: 'radius-center-marker',
+                        html: `<div class="flex items-center justify-center w-8 h-8 rounded-full bg-rose-500/25 border-2 border-rose-500 shadow-xl shadow-rose-500/20">
+                                 <div class="w-2.5 h-2.5 bg-rose-500 rounded-full animate-pulse"></div>
+                               </div>`,
+                        iconSize: [32, 32],
+                        iconAnchor: [16, 16]
+                    });
+
+                    this.leafletRadiusCenterMarker = L.marker([this.radiusCenterLat, this.radiusCenterLng], { icon: centerIcon })
+                        .bindPopup(`<div class="p-2"><p class="text-xs font-bold text-white leading-tight">Центр поиска</p><p class="text-[10px] text-gray-400 mt-1">${this.radiusSearchAddress || 'Заданная точка'}</p></div>`)
+                        .addTo(this.map);
+
+                    // Fit map bounds to show circle
+                    this.map.fitBounds(this.leafletRadiusCircle.getBounds(), { padding: [40, 40] });
+
+                    this.updateMapAndStats();
+                },
+
+                updateRadiusCircle() {
+                    if (this.leafletRadiusCircle) {
+                        this.leafletRadiusCircle.setRadius(parseInt(this.radiusMeters));
+                        this.updateMapAndStats();
+                    }
+                },
+
+                clearRadiusSearch() {
+                    if (this.leafletRadiusCircle) {
+                        this.map.removeLayer(this.leafletRadiusCircle);
+                        this.leafletRadiusCircle = null;
+                    }
+                    if (this.leafletRadiusCenterMarker) {
+                        this.map.removeLayer(this.leafletRadiusCenterMarker);
+                        this.leafletRadiusCenterMarker = null;
+                    }
+                    this.radiusCenterLat = null;
+                    this.radiusCenterLng = null;
+                    this.radiusGeocodingError = '';
+                    this.updateMapAndStats();
+                },
+
+                formatRadiusText(meters) {
+                    const m = parseInt(meters);
+                    if (m >= 1000) {
+                        return (m / 1000).toFixed(1) + ' км';
+                    }
+                    return m + ' м';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
