@@ -3145,281 +3145,144 @@ ${bodyHtml}
                         return;
                     }
 
-                    const workbook = new ExcelJS.Workbook();
-                    workbook.creator = 'LiftMedia';
-                    workbook.created = new Date();
-
-                    // --- Лист 1: Сводная смета ---
-                    const wsSummary = workbook.addWorksheet('Сводная смета', {
-                        views: [{ state: 'frozen', ySplit: 9 }]
-                    });
-
-                    // Define columns
-                    wsSummary.columns = [
-                        { key: 'col1', width: 5 },
-                        { key: 'col2', width: 45 },
-                        { key: 'col3', width: 12 },
-                        { key: 'col4', width: 12 },
-                        { key: 'col5', width: 15 },
-                        { key: 'col6', width: 22 }
-                    ];
-
-                    const addStyledRow = (ws, values, isHeader = false, isCategory = false) => {
-                        const row = ws.addRow(values);
-                        row.eachCell((cell, colNumber) => {
-                            if (cell.value === undefined || cell.value === null || cell.value === '') return;
-                            cell.font = { 
-                                name: 'Arial', 
-                                size: 10, 
-                                bold: isHeader || isCategory 
-                            };
-                            cell.alignment = { 
-                                vertical: 'middle', 
-                                horizontal: (colNumber > 2 && !isCategory) ? 'center' : (colNumber === 6 && !isCategory) ? 'right' : 'left',
-                                wrapText: true
-                            };
-                            if (isHeader) {
-                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
-                                cell.border = {
-                                    top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'}
-                                };
-                            } else if (!isCategory) {
-                                cell.border = {
-                                    top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'}
-                                };
-                            }
-                        });
-                        return row;
-                    };
-
-                    // Headers
-                    let logoId = null;
                     try {
-                        const response = await fetch('/logo.png');
-                        if (response.ok) {
-                            const buffer = await response.arrayBuffer();
-                            logoId = workbook.addImage({
-                                buffer: buffer,
-                                extension: 'png',
-                            });
+                        const response = await fetch('/template.xlsx');
+                        if (!response.ok) {
+                            alert('Файл шаблона (template.xlsx) не найден на сервере.');
+                            return;
                         }
-                    } catch (e) {
-                        console.warn('Logo could not be loaded', e);
-                    }
+                        const buffer = await response.arrayBuffer();
+                        
+                        const workbook = new ExcelJS.Workbook();
+                        await workbook.xlsx.load(buffer);
 
-                    if (logoId !== null) {
-                        wsSummary.mergeCells('C1:F4');
-                        const titleCell = wsSummary.getCell('C1');
-                        titleCell.value = 'СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ';
-                        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF002060' } };
-                        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
-
-                        wsSummary.mergeCells('A1:B4');
-                        wsSummary.addImage(logoId, {
-                            tl: { col: 0.2, row: 0.2 },
-                            ext: { width: 130, height: 130 }
-                        });
-                        wsSummary.getRow(1).height = 25;
-                        wsSummary.getRow(2).height = 25;
-                        wsSummary.getRow(3).height = 25;
-                        wsSummary.getRow(4).height = 25;
-                    } else {
-                        wsSummary.mergeCells('A1:F4');
-                        const titleCell = wsSummary.getCell('A1');
-                        titleCell.value = 'СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ';
-                        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF002060' } };
-                        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
-                    }
-
-                    wsSummary.addRow(['Заказчик:', this.generatorClientName.trim() || 'Уважаемый клиент']);
-                    wsSummary.addRow(['Дата создания:', this.todayDate]);
-                    wsSummary.addRow(['Срок размещения:', `${this.generatorDays} дней`]);
-                    wsSummary.addRow([]);
-
-                    // Table Header
-                    addStyledRow(wsSummary, ['№', 'Сектор / БЦ', 'Объектов', 'Мониторов', 'Показов', `Сумма (${this.generatorDays} дн.)`], true);
-
-                    let counter = 1;
-                    this.generatorSummaryTables.forEach(cat => {
-                        addStyledRow(wsSummary, [cat.name, '', '', '', '', ''], false, true);
-                        cat.sectors.forEach(sec => {
-                            const row = addStyledRow(wsSummary, [
-                                counter++,
-                                sec.cleanSectorName,
-                                sec.houseCount,
-                                sec.monitorCount,
-                                sec.monitorCount * 288 * this.generatorDays,
-                                sec.finalPrice
-                            ]);
-                            row.getCell(6).numFmt = '#,##0.00 [$$₸]';
-                        });
-                    });
-
-                    wsSummary.addRow([]);
-                    const addTotalRow = (label, value, bold = false, color = null) => {
-                        const row = wsSummary.addRow(['', '', '', '', label, value]);
-                        row.getCell(5).font = { name: 'Arial', size: 10, bold: true };
-                        row.getCell(5).alignment = { horizontal: 'right' };
-                        row.getCell(6).font = { name: 'Arial', size: 10, bold: bold };
-                        if (color) {
-                            row.getCell(5).font.color = { argb: color };
-                            row.getCell(6).font.color = { argb: color };
-                        }
-                        row.getCell(6).numFmt = '#,##0.00 [$$₸]';
-                    };
-
-                    addTotalRow('Базовая стоимость:', this.generatorTotals.subtotal);
-                    if (this.generatorDiscount > 0) {
-                        addTotalRow(`Скидка (${this.generatorDiscount}%):`, -this.generatorTotals.discountAmount, false, 'FFFF0000');
-                        addTotalRow('Со скидкой:', this.generatorTotals.subtotalAfterDiscount, true);
-                    }
-                    addTotalRow(this.generatorIncludeVat ? 'НДС (16%):' : 'Без НДС:', this.generatorIncludeVat ? this.generatorTotals.vatAmount : 0);
-                    addTotalRow('Итого к оплате:', this.generatorTotals.grandTotal, true, 'FF0070C0');
-
-                    // --- Листы: Адресные программы ---
-                    if (this.generatorIncludeDetailedAddress) {
-                        this.generatorSummaryTables.forEach(cat => {
-                            const isBC = cat.name.includes('БЦ') || cat.name.includes('Бизнес-центры');
-                            const baseCity = cat.name.split('г. ')[1] || 'Город';
-                            const sheetName = `АП - ${baseCity} ${isBC ? 'БЦ' : 'ЖК'}`;
+                        // --- Лист 1: INDOOR_led лифт ---
+                        const wsSummary = workbook.getWorksheet('INDOOR_led лифт');
+                        if (wsSummary) {
+                            // Set basic info
+                            const clientCell = wsSummary.getCell('E4');
+                            if (clientCell) clientCell.value = this.generatorClientName.trim() || 'Клиент';
                             
-                            let wsAddress = workbook.getWorksheet(sheetName);
-                            if (!wsAddress) {
-                                wsAddress = workbook.addWorksheet(sheetName, {
-                                    views: [{ state: 'frozen', ySplit: 7 }]
-                                });
-                                wsAddress.columns = isBC ? [
-                                    { key: 'col1', width: 25 }, // Сектор
-                                    { key: 'col2', width: 35 }, // Бизнес-центр
-                                    { key: 'col3', width: 15 }, // Лифты
-                                    { key: 'col4', width: 15 }, // Холлы
-                                    { key: 'col5', width: 10 }, // Этажей
-                                    { key: 'col6', width: 15 }, // Организаций
-                                    { key: 'col7', width: 15 }, // Всего мон
-                                    { key: 'col8', width: 45 }  // Адрес
-                                ] : [
-                                    { key: 'col1', width: 25 }, // Сектор
-                                    { key: 'col2', width: 35 }, // Название ЖК
-                                    { key: 'col3', width: 12 }, // Подъездов
-                                    { key: 'col4', width: 10 }, // Этажей
-                                    { key: 'col5', width: 12 }, // Квартир
-                                    { key: 'col6', width: 12 }, // Мониторов
-                                    { key: 'col7', width: 45 }  // Адрес
-                                ];
+                            const daysCell = wsSummary.getCell('E5');
+                            if (daysCell) daysCell.value = `${this.generatorDays} дней`;
 
-                                if (logoId !== null) {
-                                    wsAddress.mergeCells('C1:F4');
-                                    const t1 = wsAddress.getCell('C1');
-                                    t1.value = `Общая Адресная программа ${isBC ? 'БЦ' : 'ЖК'} по г. ${baseCity}`;
-                                    t1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF002060' } };
-                                    t1.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                            // Process sectors
+                            for (let i = 11; i <= 200; i++) {
+                                const row = wsSummary.getRow(i);
+                                const cellSectorName = row.getCell(3).value;
+                                if (!cellSectorName) continue;
+                                
+                                const sectorStr = cellSectorName.toString().trim();
+                                if (sectorStr.startsWith('Итого')) continue;
 
-                                    wsAddress.mergeCells('A1:B4');
-                                    wsAddress.addImage(logoId, {
-                                        tl: { col: 0.2, row: 0.2 },
-                                        ext: { width: 130, height: 130 }
-                                    });
-                                    wsAddress.getRow(1).height = 25;
-                                    wsAddress.getRow(2).height = 25;
-                                    wsAddress.getRow(3).height = 25;
-                                    wsAddress.getRow(4).height = 25;
-                                } else {
-                                    wsAddress.mergeCells('A1:F4');
-                                    const t1 = wsAddress.getCell('A1');
-                                    t1.value = `Общая Адресная программа ${isBC ? 'БЦ' : 'ЖК'} по г. ${baseCity}`;
-                                    t1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF002060' } };
-                                    t1.alignment = { vertical: 'middle', horizontal: 'center' };
+                                // Check if sector is selected
+                                let isSelected = false;
+                                let selectedSec = null;
+                                for (const cat of this.generatorSummaryTables) {
+                                    for (const sec of cat.sectors) {
+                                        const cleanCell = sectorStr.replace(/^(ЖК|БЦ)\s+/i, '').trim();
+                                        const cleanSec = sec.cleanSectorName.replace(/^(ЖК|БЦ)\s+/i, '').trim();
+                                        if (cleanCell === cleanSec || sectorStr.includes(cleanSec)) {
+                                            isSelected = true;
+                                            selectedSec = sec;
+                                            break;
+                                        }
+                                    }
+                                    if (isSelected) break;
                                 }
-                                
-                                wsAddress.mergeCells('A5:G5');
-                                const t2 = wsAddress.getCell('A5');
-                                t2.value = 'Длительность роликов 15 секунд, на казахском и русском языках / 1 выход каждую 5-ю минуту';
-                                t2.font = { name: 'Arial', size: 10, italic: true };
 
-                                wsAddress.addRow([]); // empty line 6
-                                
-                                const headers = isBC 
-                                    ? ['Сектор', 'Бизнес-центр', 'Мониторы в лифтах', 'Мониторы в холлах', 'Этажей', 'Организаций', 'Всего (мон.)', 'Адрес БЦ/ район']
-                                    : ['Сектор', 'Название ЖК', 'Подъездов', 'Этажей', 'Квартир', 'Мониторов', 'Адрес ЖК/ район'];
-                                
-                                addStyledRow(wsAddress, headers, true);
-                            }
-
-                            const addAddressRow = (values, isSubtotal = false) => {
-                                const row = wsAddress.addRow(values);
-                                row.eachCell((cell, colNumber) => {
-                                    cell.font = { name: 'Arial', size: 9, bold: isSubtotal };
-                                    cell.alignment = { 
-                                        vertical: 'middle', 
-                                        horizontal: (colNumber > 2 && colNumber < (isBC ? 8 : 7)) ? 'center' : 'left',
-                                        wrapText: true
-                                    };
-                                    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
-                                    if (isSubtotal) {
-                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
-                                    }
-                                });
-                                return row;
-                            };
-
-                            cat.sectors.forEach(sec => {
-                                const houses = this.priceListData.filter(h => 
-                                    h.sheet_name === sec.sheet_name && 
-                                    h.sheet_sector_name === sec.sheet_sector_name &&
-                                    !this.generatorExcludedHouses.includes(`${h.sheet_name}|${h.sheet_house_name}`)
-                                );
-                                
-                                let secTotalMonitors = 0;
-                                let secTotalP = 0, secTotalF = 0, secTotalA = 0;
-                                let secTotalLift = 0, secTotalHall = 0;
-
-                                houses.forEach(house => {
-                                    secTotalMonitors += (house.actual_monitors || 0);
-                                    if (!isBC) {
-                                        addAddressRow([
-                                            sec.sheet_sector_name,
-                                            house.sheet_house_name,
-                                            house.entrances || '—',
-                                            house.floors || '—',
-                                            house.apartments || '—',
-                                            house.actual_monitors,
-                                            house.sheet_address
-                                        ]);
-                                        secTotalP += parseInt(house.entrances) || 0;
-                                        secTotalA += parseInt(house.apartments) || 0;
-                                    } else {
-                                        addAddressRow([
-                                            sec.sheet_sector_name,
-                                            house.sheet_house_name,
-                                            house.monitors_lift || 0,
-                                            house.monitors_hall || 0,
-                                            house.floors || '—',
-                                            house.apartments || '—',
-                                            house.actual_monitors,
-                                            house.sheet_address
-                                        ]);
-                                        secTotalLift += parseInt(house.monitors_lift) || 0;
-                                        secTotalHall += parseInt(house.monitors_hall) || 0;
-                                        secTotalA += parseInt(house.apartments) || 0;
-                                    }
-                                });
-                                
-                                // Subtotal for sector
-                                if (!isBC) {
-                                    addAddressRow(['', 'Итого:', secTotalP || '—', '—', secTotalA || '—', secTotalMonitors, ''], true);
+                                if (!isSelected) {
+                                    row.hidden = true;
+                                    row.getCell(10).value = 0; // Days
                                 } else {
-                                    addAddressRow(['', 'Итого:', secTotalLift || 0, secTotalHall || 0, '—', secTotalA || '—', secTotalMonitors, ''], true);
+                                    row.getCell(10).value = parseInt(this.generatorDays) || 30;
+                                    if (this.generatorDiscount > 0) {
+                                        row.getCell(8).value = this.generatorDiscount / 100;
+                                    } else {
+                                        row.getCell(8).value = 0;
+                                    }
+                                    if (selectedSec && selectedSec.monitorCount) {
+                                        row.getCell(6).value = selectedSec.monitorCount;
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- Адресные программы ---
+                        if (!this.generatorIncludeDetailedAddress) {
+                            // Hide AP sheets if not requested
+                            workbook.eachSheet((sheet, id) => {
+                                if (sheet.name.startsWith('АП')) {
+                                    sheet.state = 'hidden';
                                 }
                             });
-                        });
-                    }
+                        } else {
+                            const apSheets = ['АП - Астана ЖК', 'АП - Астана БЦ', 'АП - Алматы ЖК ', 'АП - Алматы БЦ'];
+                            
+                            apSheets.forEach(sheetName => {
+                                const wsAddress = workbook.getWorksheet(sheetName);
+                                if (!wsAddress) return;
+                                
+                                const isBC = sheetName.includes('БЦ');
+                                
+                                for (let i = 5; i <= 1000; i++) {
+                                    const row = wsAddress.getRow(i);
+                                    
+                                    let houseData = null;
+                                    let nameCol = 1;
+                                    for (let c = 1; c <= 4; c++) {
+                                        const val = row.getCell(c).value?.toString().trim();
+                                        if (val) {
+                                            houseData = this.priceListData.find(h => h.sheet_house_name.trim() === val);
+                                            if (houseData) {
+                                                nameCol = c;
+                                                break;
+                                            }
+                                        }
+                                    }
 
-                    // Сохранение файла
-                    const clientName = this.generatorClientName.trim() ? this.generatorClientName.trim() : 'Client';
-                    const filename = `Smeta_LiftMedia_${clientName.replace(/\s+/g, '_')}_${this.todayDate.replace(/\./g, '-')}.xlsx`;
-                    
-                    const buffer = await workbook.xlsx.writeBuffer();
-                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), filename);
+                                    if (houseData) {
+                                        let isHouseSelected = false;
+                                        
+                                        const isSectorSelected = this.generatorSummaryTables.some(cat => 
+                                            cat.sectors.some(sec => sec.sheet_name === houseData.sheet_name && sec.sheet_sector_name === houseData.sheet_sector_name)
+                                        );
+                                        
+                                        if (isSectorSelected) {
+                                            const isExcluded = this.generatorExcludedHouses.includes(`${houseData.sheet_name}|${houseData.sheet_house_name}`);
+                                            if (!isExcluded) {
+                                                isHouseSelected = true;
+                                            }
+                                        }
+
+                                        if (!isHouseSelected) {
+                                            row.hidden = true;
+                                            if (!isBC) {
+                                                row.getCell(nameCol + 2).value = 0; // Monitors
+                                                row.getCell(nameCol + 3).value = 0; // Entrances
+                                                row.getCell(nameCol + 5).value = 0; // Apartments
+                                            } else {
+                                                row.getCell(nameCol + 2).value = 0; // Lifts
+                                                row.getCell(nameCol + 3).value = 0; // Halls
+                                                row.getCell(nameCol + 5).value = 0; // Orgs
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        // Сохранение файла
+                        const clientName = this.generatorClientName.trim() ? this.generatorClientName.trim() : 'Client';
+                        const filename = `Smeta_LiftMedia_${clientName.replace(/\s+/g, '_')}_${this.todayDate.replace(/\./g, '-')}.xlsx`;
+                        
+                        const outBuffer = await workbook.xlsx.writeBuffer();
+                        saveAs(new Blob([outBuffer], { type: 'application/octet-stream' }), filename);
+
+                    } catch (error) {
+                        console.error('Error generating Excel from template:', error);
+                        alert('Произошла ошибка при создании Excel-файла. Проверьте консоль.');
+                    }
                 },
 
                 trackingLinkUrl: null,
