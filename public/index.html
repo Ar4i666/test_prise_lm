@@ -32,8 +32,9 @@
     <!-- Leaflet.js Maps -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    <!-- SheetJS for Excel Export -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- ExcelJS for Styled Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- Tailwind needed in print window too, loaded via window.open -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -3138,30 +3139,111 @@ ${bodyHtml}
                     printWindow.document.close();
                 },
 
-                downloadSmetaExcel() {
-                    if (typeof XLSX === 'undefined') {
-                        alert('Библиотека Excel еще не загружена. Пожалуйста, подождите или перезагрузите страницу.');
+                async downloadSmetaExcel() {
+                    if (typeof ExcelJS === 'undefined') {
+                        alert('Библиотека ExcelJS еще не загружена. Пожалуйста, подождите или перезагрузите страницу.');
                         return;
                     }
 
-                    const wb = XLSX.utils.book_new();
+                    const workbook = new ExcelJS.Workbook();
+                    workbook.creator = 'LiftMedia';
+                    workbook.created = new Date();
 
                     // --- Лист 1: Сводная смета ---
-                    const summaryData = [];
-                    summaryData.push(['СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ']);
-                    summaryData.push([]);
-                    summaryData.push(['Заказчик:', this.generatorClientName.trim() || 'Уважаемый клиент']);
-                    summaryData.push(['Дата создания:', this.todayDate]);
-                    summaryData.push(['Срок размещения:', `${this.generatorDays} дней`]);
-                    summaryData.push([]);
+                    const wsSummary = workbook.addWorksheet('Сводная смета', {
+                        views: [{ state: 'frozen', ySplit: 9 }]
+                    });
 
-                    summaryData.push(['№', 'Сектор / БЦ', 'Объектов', 'Мониторов', 'Показов', `Сумма (${this.generatorDays} дн.)`]);
-                    
+                    // Define columns
+                    wsSummary.columns = [
+                        { key: 'col1', width: 5 },
+                        { key: 'col2', width: 45 },
+                        { key: 'col3', width: 12 },
+                        { key: 'col4', width: 12 },
+                        { key: 'col5', width: 15 },
+                        { key: 'col6', width: 22 }
+                    ];
+
+                    const addStyledRow = (ws, values, isHeader = false, isCategory = false) => {
+                        const row = ws.addRow(values);
+                        row.eachCell((cell, colNumber) => {
+                            if (cell.value === undefined || cell.value === null || cell.value === '') return;
+                            cell.font = { 
+                                name: 'Arial', 
+                                size: 10, 
+                                bold: isHeader || isCategory 
+                            };
+                            cell.alignment = { 
+                                vertical: 'middle', 
+                                horizontal: (colNumber > 2 && !isCategory) ? 'center' : (colNumber === 6 && !isCategory) ? 'right' : 'left',
+                                wrapText: true
+                            };
+                            if (isHeader) {
+                                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9D9D9' } };
+                                cell.border = {
+                                    top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'}
+                                };
+                            } else if (!isCategory) {
+                                cell.border = {
+                                    top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'}
+                                };
+                            }
+                        });
+                        return row;
+                    };
+
+                    // Headers
+                    let logoId = null;
+                    try {
+                        const response = await fetch('/logo.png');
+                        if (response.ok) {
+                            const buffer = await response.arrayBuffer();
+                            logoId = workbook.addImage({
+                                buffer: buffer,
+                                extension: 'png',
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Logo could not be loaded', e);
+                    }
+
+                    if (logoId !== null) {
+                        wsSummary.mergeCells('C1:F4');
+                        const titleCell = wsSummary.getCell('C1');
+                        titleCell.value = 'СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ';
+                        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF002060' } };
+                        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+                        wsSummary.mergeCells('A1:B4');
+                        wsSummary.addImage(logoId, {
+                            tl: { col: 0.2, row: 0.2 },
+                            ext: { width: 130, height: 130 }
+                        });
+                        wsSummary.getRow(1).height = 25;
+                        wsSummary.getRow(2).height = 25;
+                        wsSummary.getRow(3).height = 25;
+                        wsSummary.getRow(4).height = 25;
+                    } else {
+                        wsSummary.mergeCells('A1:F4');
+                        const titleCell = wsSummary.getCell('A1');
+                        titleCell.value = 'СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ';
+                        titleCell.font = { name: 'Arial', size: 16, bold: true, color: { argb: 'FF002060' } };
+                        titleCell.alignment = { vertical: 'middle', horizontal: 'center' };
+                    }
+
+                    wsSummary.addRow(['Заказчик:', this.generatorClientName.trim() || 'Уважаемый клиент']);
+                    wsSummary.addRow(['Дата создания:', this.todayDate]);
+                    wsSummary.addRow(['Срок размещения:', `${this.generatorDays} дней`]);
+                    wsSummary.addRow([]);
+
+                    // Table Header
+                    addStyledRow(wsSummary, ['№', 'Сектор / БЦ', 'Объектов', 'Мониторов', 'Показов', `Сумма (${this.generatorDays} дн.)`], true);
+
                     let counter = 1;
                     this.generatorSummaryTables.forEach(cat => {
-                        summaryData.push([cat.name, '', '', '', '', '']);
+                        addStyledRow(wsSummary, [cat.name, '', '', '', '', ''], false, true);
                         cat.sectors.forEach(sec => {
-                            summaryData.push([
+                            const row = addStyledRow(wsSummary, [
                                 counter++,
                                 sec.cleanSectorName,
                                 sec.houseCount,
@@ -3169,44 +3251,116 @@ ${bodyHtml}
                                 sec.monitorCount * 288 * this.generatorDays,
                                 sec.finalPrice
                             ]);
+                            row.getCell(6).numFmt = '#,##0.00 [$$₸]';
                         });
                     });
 
-                    summaryData.push([]);
-                    summaryData.push(['', '', '', '', 'Базовая стоимость:', this.generatorTotals.subtotal]);
+                    wsSummary.addRow([]);
+                    const addTotalRow = (label, value, bold = false, color = null) => {
+                        const row = wsSummary.addRow(['', '', '', '', label, value]);
+                        row.getCell(5).font = { name: 'Arial', size: 10, bold: true };
+                        row.getCell(5).alignment = { horizontal: 'right' };
+                        row.getCell(6).font = { name: 'Arial', size: 10, bold: bold };
+                        if (color) {
+                            row.getCell(5).font.color = { argb: color };
+                            row.getCell(6).font.color = { argb: color };
+                        }
+                        row.getCell(6).numFmt = '#,##0.00 [$$₸]';
+                    };
+
+                    addTotalRow('Базовая стоимость:', this.generatorTotals.subtotal);
                     if (this.generatorDiscount > 0) {
-                        summaryData.push(['', '', '', '', `Скидка (${this.generatorDiscount}%):`, -this.generatorTotals.discountAmount]);
-                        summaryData.push(['', '', '', '', 'Со скидкой:', this.generatorTotals.subtotalAfterDiscount]);
+                        addTotalRow(`Скидка (${this.generatorDiscount}%):`, -this.generatorTotals.discountAmount, false, 'FFFF0000');
+                        addTotalRow('Со скидкой:', this.generatorTotals.subtotalAfterDiscount, true);
                     }
-                    summaryData.push(['', '', '', '', this.generatorIncludeVat ? 'НДС (16%):' : 'Без НДС:', this.generatorIncludeVat ? this.generatorTotals.vatAmount : 0]);
-                    summaryData.push(['', '', '', '', 'Итого к оплате:', this.generatorTotals.grandTotal]);
+                    addTotalRow(this.generatorIncludeVat ? 'НДС (16%):' : 'Без НДС:', this.generatorIncludeVat ? this.generatorTotals.vatAmount : 0);
+                    addTotalRow('Итого к оплате:', this.generatorTotals.grandTotal, true, 'FF0070C0');
 
-                    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
-                    wsSummary['!cols'] = [
-                        { wch: 5 },  // №
-                        { wch: 40 }, // Сектор / БЦ
-                        { wch: 10 }, // Объектов
-                        { wch: 12 }, // Мониторов
-                        { wch: 15 }, // Показов
-                        { wch: 20 }, // Сумма
-                    ];
-                    XLSX.utils.book_append_sheet(wb, wsSummary, "Сводная смета");
-
-                    // --- Лист 2: Адресная программа ---
+                    // --- Листы: Адресные программы ---
                     if (this.generatorIncludeDetailedAddress) {
-                        const addressData = [];
-                        addressData.push(['ПОДРОБНАЯ АДРЕСНАЯ ПРОГРАММА']);
-                        addressData.push([]);
-
                         this.generatorSummaryTables.forEach(cat => {
                             const isBC = cat.name.includes('БЦ') || cat.name.includes('Бизнес-центры');
-                            addressData.push([cat.name]);
+                            const baseCity = cat.name.split('г. ')[1] || 'Город';
+                            const sheetName = `АП - ${baseCity} ${isBC ? 'БЦ' : 'ЖК'}`;
                             
-                            if (!isBC) {
-                                addressData.push(['Сектор', 'Название ЖК', 'Подъездов', 'Этажей', 'Квартир', 'Мониторов', 'Адрес ЖК/ район']);
-                            } else {
-                                addressData.push(['Сектор', 'Бизнес-центр', 'Лифты (мон.)', 'Холлы (мон.)', 'Этажей', 'Организаций', 'Всего (мон.)', 'Адрес БЦ/ район']);
+                            let wsAddress = workbook.getWorksheet(sheetName);
+                            if (!wsAddress) {
+                                wsAddress = workbook.addWorksheet(sheetName, {
+                                    views: [{ state: 'frozen', ySplit: 7 }]
+                                });
+                                wsAddress.columns = isBC ? [
+                                    { key: 'col1', width: 25 }, // Сектор
+                                    { key: 'col2', width: 35 }, // Бизнес-центр
+                                    { key: 'col3', width: 15 }, // Лифты
+                                    { key: 'col4', width: 15 }, // Холлы
+                                    { key: 'col5', width: 10 }, // Этажей
+                                    { key: 'col6', width: 15 }, // Организаций
+                                    { key: 'col7', width: 15 }, // Всего мон
+                                    { key: 'col8', width: 45 }  // Адрес
+                                ] : [
+                                    { key: 'col1', width: 25 }, // Сектор
+                                    { key: 'col2', width: 35 }, // Название ЖК
+                                    { key: 'col3', width: 12 }, // Подъездов
+                                    { key: 'col4', width: 10 }, // Этажей
+                                    { key: 'col5', width: 12 }, // Квартир
+                                    { key: 'col6', width: 12 }, // Мониторов
+                                    { key: 'col7', width: 45 }  // Адрес
+                                ];
+
+                                if (logoId !== null) {
+                                    wsAddress.mergeCells('C1:F4');
+                                    const t1 = wsAddress.getCell('C1');
+                                    t1.value = `Общая Адресная программа ${isBC ? 'БЦ' : 'ЖК'} по г. ${baseCity}`;
+                                    t1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF002060' } };
+                                    t1.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+                                    wsAddress.mergeCells('A1:B4');
+                                    wsAddress.addImage(logoId, {
+                                        tl: { col: 0.2, row: 0.2 },
+                                        ext: { width: 130, height: 130 }
+                                    });
+                                    wsAddress.getRow(1).height = 25;
+                                    wsAddress.getRow(2).height = 25;
+                                    wsAddress.getRow(3).height = 25;
+                                    wsAddress.getRow(4).height = 25;
+                                } else {
+                                    wsAddress.mergeCells('A1:F4');
+                                    const t1 = wsAddress.getCell('A1');
+                                    t1.value = `Общая Адресная программа ${isBC ? 'БЦ' : 'ЖК'} по г. ${baseCity}`;
+                                    t1.font = { name: 'Arial', size: 14, bold: true, color: { argb: 'FF002060' } };
+                                    t1.alignment = { vertical: 'middle', horizontal: 'center' };
+                                }
+                                
+                                wsAddress.mergeCells('A5:G5');
+                                const t2 = wsAddress.getCell('A5');
+                                t2.value = 'Длительность роликов 15 секунд, на казахском и русском языках / 1 выход каждую 5-ю минуту';
+                                t2.font = { name: 'Arial', size: 10, italic: true };
+
+                                wsAddress.addRow([]); // empty line 6
+                                
+                                const headers = isBC 
+                                    ? ['Сектор', 'Бизнес-центр', 'Мониторы в лифтах', 'Мониторы в холлах', 'Этажей', 'Организаций', 'Всего (мон.)', 'Адрес БЦ/ район']
+                                    : ['Сектор', 'Название ЖК', 'Подъездов', 'Этажей', 'Квартир', 'Мониторов', 'Адрес ЖК/ район'];
+                                
+                                addStyledRow(wsAddress, headers, true);
                             }
+
+                            const addAddressRow = (values, isSubtotal = false) => {
+                                const row = wsAddress.addRow(values);
+                                row.eachCell((cell, colNumber) => {
+                                    cell.font = { name: 'Arial', size: 9, bold: isSubtotal };
+                                    cell.alignment = { 
+                                        vertical: 'middle', 
+                                        horizontal: (colNumber > 2 && colNumber < (isBC ? 8 : 7)) ? 'center' : 'left',
+                                        wrapText: true
+                                    };
+                                    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+                                    if (isSubtotal) {
+                                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+                                    }
+                                });
+                                return row;
+                            };
 
                             cat.sectors.forEach(sec => {
                                 const houses = this.priceListData.filter(h => 
@@ -3214,10 +3368,15 @@ ${bodyHtml}
                                     h.sheet_sector_name === sec.sheet_sector_name &&
                                     !this.generatorExcludedHouses.includes(`${h.sheet_name}|${h.sheet_house_name}`)
                                 );
+                                
+                                let secTotalMonitors = 0;
+                                let secTotalP = 0, secTotalF = 0, secTotalA = 0;
+                                let secTotalLift = 0, secTotalHall = 0;
 
                                 houses.forEach(house => {
+                                    secTotalMonitors += (house.actual_monitors || 0);
                                     if (!isBC) {
-                                        addressData.push([
+                                        addAddressRow([
                                             sec.sheet_sector_name,
                                             house.sheet_house_name,
                                             house.entrances || '—',
@@ -3226,41 +3385,41 @@ ${bodyHtml}
                                             house.actual_monitors,
                                             house.sheet_address
                                         ]);
+                                        secTotalP += parseInt(house.entrances) || 0;
+                                        secTotalA += parseInt(house.apartments) || 0;
                                     } else {
-                                        addressData.push([
+                                        addAddressRow([
                                             sec.sheet_sector_name,
                                             house.sheet_house_name,
-                                            house.monitors_lift || '0',
-                                            house.monitors_hall || '0',
+                                            house.monitors_lift || 0,
+                                            house.monitors_hall || 0,
                                             house.floors || '—',
                                             house.apartments || '—',
                                             house.actual_monitors,
                                             house.sheet_address
                                         ]);
+                                        secTotalLift += parseInt(house.monitors_lift) || 0;
+                                        secTotalHall += parseInt(house.monitors_hall) || 0;
+                                        secTotalA += parseInt(house.apartments) || 0;
                                     }
                                 });
+                                
+                                // Subtotal for sector
+                                if (!isBC) {
+                                    addAddressRow(['', 'Итого:', secTotalP || '—', '—', secTotalA || '—', secTotalMonitors, ''], true);
+                                } else {
+                                    addAddressRow(['', 'Итого:', secTotalLift || 0, secTotalHall || 0, '—', secTotalA || '—', secTotalMonitors, ''], true);
+                                }
                             });
-                            addressData.push([]);
                         });
-
-                        const wsAddress = XLSX.utils.aoa_to_sheet(addressData);
-                        wsAddress['!cols'] = [
-                            { wch: 20 }, // Сектор
-                            { wch: 30 }, // Название / БЦ
-                            { wch: 12 }, // Подъездов / Лифты
-                            { wch: 12 }, // Этажей / Холлы
-                            { wch: 12 }, // Квартир / Этажей
-                            { wch: 12 }, // Мониторов / Организаций
-                            { wch: 15 }, // Всего (мон.) / Адрес
-                            { wch: 40 }, // Адрес
-                        ];
-                        XLSX.utils.book_append_sheet(wb, wsAddress, "Адресная программа");
                     }
 
                     // Сохранение файла
                     const clientName = this.generatorClientName.trim() ? this.generatorClientName.trim() : 'Client';
                     const filename = `Smeta_LiftMedia_${clientName.replace(/\s+/g, '_')}_${this.todayDate.replace(/\./g, '-')}.xlsx`;
-                    XLSX.writeFile(wb, filename);
+                    
+                    const buffer = await workbook.xlsx.writeBuffer();
+                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), filename);
                 },
 
                 trackingLinkUrl: null,
