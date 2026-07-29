@@ -32,6 +32,8 @@
     <!-- Leaflet.js Maps -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- Tailwind needed in print window too, loaded via window.open -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -943,6 +945,16 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                                 </svg>
                                 Скачать смету в PDF
+                            </button>
+
+                            <!-- Download Excel Button -->
+                            <button @click="downloadSmetaExcel()" 
+                                    :disabled="generatorTotals.sectors.length === 0"
+                                    class="w-full py-3.5 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-extrabold text-sm uppercase tracking-wider rounded-xl shadow-lg shadow-green-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mt-3">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                Скачать смету в Excel
                             </button>
 
                             <!-- Copy Link Button -->
@@ -3124,6 +3136,131 @@ ${bodyHtml}
                     printWindow.document.open();
                     printWindow.document.write(html);
                     printWindow.document.close();
+                },
+
+                downloadSmetaExcel() {
+                    if (typeof XLSX === 'undefined') {
+                        alert('Библиотека Excel еще не загружена. Пожалуйста, подождите или перезагрузите страницу.');
+                        return;
+                    }
+
+                    const wb = XLSX.utils.book_new();
+
+                    // --- Лист 1: Сводная смета ---
+                    const summaryData = [];
+                    summaryData.push(['СВОДНАЯ СМЕТА ПО РАЗМЕЩЕНИЮ']);
+                    summaryData.push([]);
+                    summaryData.push(['Заказчик:', this.generatorClientName.trim() || 'Уважаемый клиент']);
+                    summaryData.push(['Дата создания:', this.todayDate]);
+                    summaryData.push(['Срок размещения:', `${this.generatorDays} дней`]);
+                    summaryData.push([]);
+
+                    summaryData.push(['№', 'Сектор / БЦ', 'Объектов', 'Мониторов', 'Показов', `Сумма (${this.generatorDays} дн.)`]);
+                    
+                    let counter = 1;
+                    this.generatorSummaryTables.forEach(cat => {
+                        summaryData.push([cat.name, '', '', '', '', '']);
+                        cat.sectors.forEach(sec => {
+                            summaryData.push([
+                                counter++,
+                                sec.cleanSectorName,
+                                sec.houseCount,
+                                sec.monitorCount,
+                                sec.monitorCount * 288 * this.generatorDays,
+                                sec.finalPrice
+                            ]);
+                        });
+                    });
+
+                    summaryData.push([]);
+                    summaryData.push(['', '', '', '', 'Базовая стоимость:', this.generatorTotals.subtotal]);
+                    if (this.generatorDiscount > 0) {
+                        summaryData.push(['', '', '', '', `Скидка (${this.generatorDiscount}%):`, -this.generatorTotals.discountAmount]);
+                        summaryData.push(['', '', '', '', 'Со скидкой:', this.generatorTotals.subtotalAfterDiscount]);
+                    }
+                    summaryData.push(['', '', '', '', this.generatorIncludeVat ? 'НДС (16%):' : 'Без НДС:', this.generatorIncludeVat ? this.generatorTotals.vatAmount : 0]);
+                    summaryData.push(['', '', '', '', 'Итого к оплате:', this.generatorTotals.grandTotal]);
+
+                    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+                    wsSummary['!cols'] = [
+                        { wch: 5 },  // №
+                        { wch: 40 }, // Сектор / БЦ
+                        { wch: 10 }, // Объектов
+                        { wch: 12 }, // Мониторов
+                        { wch: 15 }, // Показов
+                        { wch: 20 }, // Сумма
+                    ];
+                    XLSX.utils.book_append_sheet(wb, wsSummary, "Сводная смета");
+
+                    // --- Лист 2: Адресная программа ---
+                    if (this.generatorIncludeDetailedAddress) {
+                        const addressData = [];
+                        addressData.push(['ПОДРОБНАЯ АДРЕСНАЯ ПРОГРАММА']);
+                        addressData.push([]);
+
+                        this.generatorSummaryTables.forEach(cat => {
+                            const isBC = cat.name.includes('БЦ') || cat.name.includes('Бизнес-центры');
+                            addressData.push([cat.name]);
+                            
+                            if (!isBC) {
+                                addressData.push(['Сектор', 'Название ЖК', 'Подъездов', 'Этажей', 'Квартир', 'Мониторов', 'Адрес ЖК/ район']);
+                            } else {
+                                addressData.push(['Сектор', 'Бизнес-центр', 'Лифты (мон.)', 'Холлы (мон.)', 'Этажей', 'Организаций', 'Всего (мон.)', 'Адрес БЦ/ район']);
+                            }
+
+                            cat.sectors.forEach(sec => {
+                                const houses = this.priceListData.filter(h => 
+                                    h.sheet_name === sec.sheet_name && 
+                                    h.sheet_sector_name === sec.sheet_sector_name &&
+                                    !this.generatorExcludedHouses.includes(`${h.sheet_name}|${h.sheet_house_name}`)
+                                );
+
+                                houses.forEach(house => {
+                                    if (!isBC) {
+                                        addressData.push([
+                                            sec.sheet_sector_name,
+                                            house.sheet_house_name,
+                                            house.entrances || '—',
+                                            house.floors || '—',
+                                            house.apartments || '—',
+                                            house.actual_monitors,
+                                            house.sheet_address
+                                        ]);
+                                    } else {
+                                        addressData.push([
+                                            sec.sheet_sector_name,
+                                            house.sheet_house_name,
+                                            house.monitors_lift || '0',
+                                            house.monitors_hall || '0',
+                                            house.floors || '—',
+                                            house.apartments || '—',
+                                            house.actual_monitors,
+                                            house.sheet_address
+                                        ]);
+                                    }
+                                });
+                            });
+                            addressData.push([]);
+                        });
+
+                        const wsAddress = XLSX.utils.aoa_to_sheet(addressData);
+                        wsAddress['!cols'] = [
+                            { wch: 20 }, // Сектор
+                            { wch: 30 }, // Название / БЦ
+                            { wch: 12 }, // Подъездов / Лифты
+                            { wch: 12 }, // Этажей / Холлы
+                            { wch: 12 }, // Квартир / Этажей
+                            { wch: 12 }, // Мониторов / Организаций
+                            { wch: 15 }, // Всего (мон.) / Адрес
+                            { wch: 40 }, // Адрес
+                        ];
+                        XLSX.utils.book_append_sheet(wb, wsAddress, "Адресная программа");
+                    }
+
+                    // Сохранение файла
+                    const clientName = this.generatorClientName.trim() ? this.generatorClientName.trim() : 'Client';
+                    const filename = `Smeta_LiftMedia_${clientName.replace(/\s+/g, '_')}_${this.todayDate.replace(/\./g, '-')}.xlsx`;
+                    XLSX.writeFile(wb, filename);
                 },
 
                 trackingLinkUrl: null,
