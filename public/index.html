@@ -33,8 +33,9 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <!-- ExcelJS for Styled Excel Export -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="/smeta-excel.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <!-- Tailwind needed in print window too, loaded via window.open -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -3140,147 +3141,116 @@ ${bodyHtml}
                 },
 
                 async downloadSmetaExcel() {
-                    if (typeof ExcelJS === 'undefined') {
-                        alert('Библиотека ExcelJS еще не загружена. Пожалуйста, подождите или перезагрузите страницу.');
+                    if (typeof ExcelJS === 'undefined' || typeof SmetaExcel === 'undefined') {
+                        alert('Библиотеки для Excel еще не загружены. Пожалуйста, подождите или перезагрузите страницу.');
                         return;
                     }
 
                     try {
-                        const response = await fetch('/template.xlsx');
-                        if (!response.ok) {
-                            alert('Файл шаблона (template.xlsx) не найден на сервере.');
+                        const selected = this.generatorTotals.sectors;
+                        if (!selected.length) {
+                            alert('Не выбран ни один сектор.');
                             return;
                         }
-                        const buffer = await response.arrayBuffer();
-                        
-                        const workbook = new ExcelJS.Workbook();
-                        await workbook.xlsx.load(buffer);
 
-                        // --- Лист 1: INDOOR_led лифт ---
-                        const wsSummary = workbook.getWorksheet('INDOOR_led лифт');
-                        if (wsSummary) {
-                            // Set basic info
-                            const clientCell = wsSummary.getCell('E4');
-                            if (clientCell) clientCell.value = this.generatorClientName.trim() || 'Клиент';
-                            
-                            const daysCell = wsSummary.getCell('E5');
-                            if (daysCell) daysCell.value = `${this.generatorDays} дней`;
+                        const isBcSheet = name => {
+                            const n = (name || '').toLowerCase();
+                            return n.includes('bc') || n.includes('бц');
+                        };
+                        const displayName = (sec, isBC) => {
+                            let n = sec.sheet_sector_name
+                                .replace(/^(BC Astana|BC Almaty|Astana|Almaty)\s*[\-—–]?\s*/i, '')
+                                .trim();
+                            if (isBC) return /^бц/i.test(n) ? n : 'БЦ ' + n;
+                            return /^жк/i.test(n) ? n : 'ЖК ' + n;
+                        };
 
-                            // Process sectors
-                            for (let i = 11; i <= 200; i++) {
-                                const row = wsSummary.getRow(i);
-                                const cellSectorName = row.getCell(3).value;
-                                if (!cellSectorName) continue;
-                                
-                                const sectorStr = cellSectorName.toString().trim();
-                                if (sectorStr.startsWith('Итого')) continue;
-
-                                // Check if sector is selected
-                                let isSelected = false;
-                                let selectedSec = null;
-                                for (const cat of this.generatorSummaryTables) {
-                                    for (const sec of cat.sectors) {
-                                        const cleanCell = sectorStr.replace(/^(ЖК|БЦ)\s+/i, '').trim();
-                                        const cleanSec = sec.cleanSectorName.replace(/^(ЖК|БЦ)\s+/i, '').trim();
-                                        if (cleanCell === cleanSec || sectorStr.includes(cleanSec)) {
-                                            isSelected = true;
-                                            selectedSec = sec;
-                                            break;
-                                        }
-                                    }
-                                    if (isSelected) break;
-                                }
-
-                                if (!isSelected) {
-                                    row.hidden = true;
-                                    row.getCell(10).value = 0; // Days
-                                } else {
-                                    row.getCell(10).value = parseInt(this.generatorDays) || 30;
-                                    if (this.generatorDiscount > 0) {
-                                        row.getCell(8).value = this.generatorDiscount / 100;
-                                    } else {
-                                        row.getCell(8).value = 0;
-                                    }
-                                    if (selectedSec && selectedSec.monitorCount) {
-                                        row.getCell(6).value = selectedSec.monitorCount;
-                                    }
-                                }
+                        // Группировка выбранных секторов в порядке шаблона: Астана ЖК, Астана БЦ, Алматы ЖК, Алматы БЦ
+                        const cityOrder = ['Астана', 'Алматы'];
+                        const groupsMap = {};
+                        selected.forEach(sec => {
+                            const city = this.getBaseCityName(sec.sheet_name);
+                            const isBC = isBcSheet(sec.sheet_name);
+                            const key = city + '|' + (isBC ? 'bc' : 'jk');
+                            if (!groupsMap[key]) {
+                                groupsMap[key] = {
+                                    city, isBC,
+                                    label: (isBC ? 'БЦ ' : 'ЖК ') + city,
+                                    diagonal: isBC ? '21.5 дюймов (55 см) и 43 дюйма (110 см)' : '15.6 дюймов (40 см)',
+                                    sectors: []
+                                };
                             }
-                        }
-
-                        // --- Адресные программы ---
-                        if (!this.generatorIncludeDetailedAddress) {
-                            // Hide AP sheets if not requested
-                            workbook.eachSheet((sheet, id) => {
-                                if (sheet.name.startsWith('АП')) {
-                                    sheet.state = 'hidden';
-                                }
+                            groupsMap[key].sectors.push({
+                                name: displayName(sec, isBC),
+                                monitors: sec.monitorCount,
+                                basePrice30d: sec.basePrice,
+                                _raw: sec
                             });
-                        } else {
-                            const apSheets = ['АП - Астана ЖК', 'АП - Астана БЦ', 'АП - Алматы ЖК ', 'АП - Алматы БЦ'];
-                            
-                            apSheets.forEach(sheetName => {
-                                const wsAddress = workbook.getWorksheet(sheetName);
-                                if (!wsAddress) return;
-                                
-                                const isBC = sheetName.includes('БЦ');
-                                
-                                for (let i = 5; i <= 1000; i++) {
-                                    const row = wsAddress.getRow(i);
-                                    
-                                    let houseData = null;
-                                    let nameCol = 1;
-                                    for (let c = 1; c <= 4; c++) {
-                                        const val = row.getCell(c).value?.toString().trim();
-                                        if (val) {
-                                            houseData = this.priceListData.find(h => h.sheet_house_name.trim() === val);
-                                            if (houseData) {
-                                                nameCol = c;
-                                                break;
-                                            }
-                                        }
-                                    }
+                        });
+                        const groups = Object.values(groupsMap).sort((a, b) => {
+                            const ca = cityOrder.indexOf(a.city), cb = cityOrder.indexOf(b.city);
+                            if (ca !== cb) return (ca === -1 ? 99 : ca) - (cb === -1 ? 99 : cb);
+                            return (a.isBC ? 1 : 0) - (b.isBC ? 1 : 0);
+                        });
 
-                                    if (houseData) {
-                                        let isHouseSelected = false;
-                                        
-                                        const isSectorSelected = this.generatorSummaryTables.some(cat => 
-                                            cat.sectors.some(sec => sec.sheet_name === houseData.sheet_name && sec.sheet_sector_name === houseData.sheet_sector_name)
-                                        );
-                                        
-                                        if (isSectorSelected) {
-                                            const isExcluded = this.generatorExcludedHouses.includes(`${houseData.sheet_name}|${houseData.sheet_house_name}`);
-                                            if (!isExcluded) {
-                                                isHouseSelected = true;
-                                            }
-                                        }
-
-                                        if (!isHouseSelected) {
-                                            row.hidden = true;
-                                            if (!isBC) {
-                                                row.getCell(nameCol + 2).value = 0; // Monitors
-                                                row.getCell(nameCol + 3).value = 0; // Entrances
-                                                row.getCell(nameCol + 5).value = 0; // Apartments
-                                            } else {
-                                                row.getCell(nameCol + 2).value = 0; // Lifts
-                                                row.getCell(nameCol + 3).value = 0; // Halls
-                                                row.getCell(nameCol + 5).value = 0; // Orgs
-                                            }
-                                        }
-                                    }
-                                }
+                        // Адресные программы по выбранным секторам (дома без исключённых)
+                        let addressPrograms = null;
+                        if (this.generatorIncludeDetailedAddress) {
+                            addressPrograms = {};
+                            selected.forEach(sec => {
+                                const city = this.getBaseCityName(sec.sheet_name);
+                                const isBC = isBcSheet(sec.sheet_name);
+                                if (!addressPrograms[city]) addressPrograms[city] = { jk: [], bc: [] };
+                                const houses = (sec.houses || []).map(h => isBC ? {
+                                    name: h.sheet_house_name,
+                                    address: h.sheet_address,
+                                    monitorsLift: h.monitors_lift,
+                                    monitorsHall: h.monitors_hall,
+                                    floors: h.floors,
+                                    orgs: h.apartments
+                                } : {
+                                    name: h.sheet_house_name,
+                                    address: h.sheet_address,
+                                    monitors: h.actual_monitors,
+                                    entrances: h.entrances,
+                                    floors: h.floors,
+                                    apartments: h.apartments
+                                });
+                                if (!houses.length) return;
+                                addressPrograms[city][isBC ? 'bc' : 'jk'].push({
+                                    name: sec.sheet_sector_name.replace(/^(BC Astana|BC Almaty|Astana|Almaty)\s*[\-—–]?\s*/i, '').trim(),
+                                    houses
+                                });
                             });
                         }
+
+                        // Картинки (логотип, фото мониторов) со статики; при ошибке — без них
+                        let media = null;
+                        try {
+                            media = await SmetaExcel.fetchSmetaMedia();
+                        } catch (e) {
+                            console.warn('Не удалось загрузить картинки для сметы:', e);
+                        }
+
+                        const wb = await SmetaExcel.buildSmetaWorkbook(ExcelJS, {
+                            clientName: this.generatorClientName,
+                            days: parseInt(this.generatorDays) || 30,
+                            discountPct: this.generatorDiscount > 0 ? this.generatorDiscount : 0,
+                            includeVat: this.generatorIncludeVat,
+                            groups,
+                            addressPrograms,
+                            media
+                        });
 
                         // Сохранение файла
                         const clientName = this.generatorClientName.trim() ? this.generatorClientName.trim() : 'Client';
                         const filename = `Smeta_LiftMedia_${clientName.replace(/\s+/g, '_')}_${this.todayDate.replace(/\./g, '-')}.xlsx`;
-                        
-                        const outBuffer = await workbook.xlsx.writeBuffer();
+
+                        const outBuffer = await wb.xlsx.writeBuffer();
                         saveAs(new Blob([outBuffer], { type: 'application/octet-stream' }), filename);
 
                     } catch (error) {
-                        console.error('Error generating Excel from template:', error);
+                        console.error('Error generating smeta Excel:', error);
                         alert('Произошла ошибка при создании Excel-файла. Проверьте консоль.');
                     }
                 },
