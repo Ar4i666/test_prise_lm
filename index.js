@@ -64,7 +64,7 @@ function getCookie(req, name) {
 // Authentication middleware
 function authenticate(req, res, next) {
   // Public API key routes
-  if (req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses') {
+  if (req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses' || req.path === '/api/v1/district-prices') {
     return next();
   }
   // Public tracking links
@@ -158,7 +158,7 @@ function checkRole(req, res, next) {
   }
 
   // Public paths
-  if (req.path === '/api/login' || req.path === '/api/config' || req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses' || req.path.startsWith('/p/') || (req.path.startsWith('/api/share-map/') && req.method === 'GET')) {
+  if (req.path === '/api/login' || req.path === '/api/config' || req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses' || req.path === '/api/v1/district-prices' || req.path.startsWith('/p/') || (req.path.startsWith('/api/share-map/') && req.method === 'GET')) {
     return next();
   }
 
