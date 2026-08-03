@@ -412,6 +412,34 @@ app.get('/api/v1/price-data', requireApiKey, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────
+// GET /api/v1/district-prices — цена каждого района chronos (для asterisk_cloud)
+// Прайсовая цена задаётся на СЕКТОР; сектор может охватывать несколько районов —
+// тогда цену делим поровну между районами. Возвращает по строке на район.
+// Ответ: { success, prices: [{ district_id, price, sector, city }] }
+// ─────────────────────────────────────────────────────────
+app.get('/api/v1/district-prices', requireApiKey, async (req, res) => {
+  try {
+    const mappings = await localDb('sector_mappings').select('*');
+    const prices = [];
+    for (const m of mappings) {
+      let ids = [];
+      try { ids = JSON.parse(m.db_district_ids || '[]'); } catch (e) { ids = []; }
+      ids = ids.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (ids.length === 0) continue;
+      const perDistrict = Math.round((Number(m.price) || 0) / ids.length);
+      const city = String(m.sheet_name || '').replace(/^BC\s+/i, '').trim();
+      for (const id of ids) {
+        prices.push({ district_id: id, price: perDistrict, sector: m.sheet_sector_name || '', city });
+      }
+    }
+    res.json({ success: true, generated_at: new Date().toISOString(), prices });
+  } catch (error) {
+    console.error('Ошибка в /api/v1/district-prices:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
 // GET /api/v1/mapped-houses — список замапленных домов (для сервиса проверки экранов)
 // Возвращает: { success, houses: [{ sheet_house_name, sheet_city_name, db_house_ids }] }
 // ─────────────────────────────────────────────────────────
