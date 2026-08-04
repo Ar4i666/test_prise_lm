@@ -247,6 +247,7 @@
 
         let r = 6;
         const totRows = [];
+        let totalHousesCount = 0;
         sectors.forEach(sec => {
             const hs = r;
             sec.houses.forEach(h => {
@@ -260,11 +261,12 @@
                 r++;
             });
             const he = r - 1;
+            totalHousesCount += sec.houses.length;
             if (he > hs) ws.mergeCells('B' + hs + ':B' + he);
             set(ws, 'B' + hs, sec.name, S_SECTOR);
             // Итого по сектору
             ws.mergeCells('B' + r + ':D' + r);
-            set(ws, 'B' + r, 'Итого:', S_TOT_LBL);
+            set(ws, 'B' + r, 'Итого (' + sec.houses.length + ' ЖК):', S_TOT_LBL);
             set(ws, 'C' + r, null, S_TOT); set(ws, 'D' + r, null, S_TOT);
             const sum = key => sec.houses.reduce((s, h) => s + (+h[key] || 0), 0);
             set(ws, 'E' + r, fx('SUM(E' + hs + ':E' + he + ')', sum('monitors')), S_TOT);
@@ -276,7 +278,7 @@
         });
         // Итог по всем секторам
         ws.mergeCells('B' + r + ':D' + r);
-        set(ws, 'B' + r, 'Итого по всем секторам:', S_TOT_LBL);
+        set(ws, 'B' + r, 'Итого по всем секторам (' + totalHousesCount + ' ЖК):', S_TOT_LBL);
         set(ws, 'C' + r, null, S_TOT); set(ws, 'D' + r, null, S_TOT);
         ['E', 'F', 'H'].forEach(col => {
             const formula = totRows.map(tr => col + tr).join('+');
@@ -320,6 +322,7 @@
 
         let r = 6;
         const totRows = [];
+        let totalBcCount = 0;
         sectors.forEach(sec => {
             const hs = r;
             sec.houses.forEach(h => {
@@ -333,9 +336,10 @@
                 r++;
             });
             const he = r - 1;
+            totalBcCount += sec.houses.length;
             // Итого по БЦ
             ws.mergeCells('B' + r + ':C' + r);
-            set(ws, 'B' + r, 'Итого:', S_TOT_LBL);
+            set(ws, 'B' + r, 'Итого (' + sec.houses.length + ' БЦ):', S_TOT_LBL);
             set(ws, 'C' + r, null, S_TOT);
             ws.mergeCells('D' + r + ':E' + r);
             const sumLifts = sec.houses.reduce((s, h) => s + (+h.monitorsLift || 0) + (+h.monitorsHall || 0), 0);
@@ -349,7 +353,7 @@
         });
         // Итог по всем БЦ
         ws.mergeCells('B' + r + ':C' + r);
-        set(ws, 'B' + r, 'Итого по всем БЦ:', S_TOT_LBL);
+        set(ws, 'B' + r, 'Итого по всем БЦ (' + totalBcCount + ' БЦ):', S_TOT_LBL);
         set(ws, 'C' + r, null, S_TOT);
         ws.mergeCells('D' + r + ':E' + r);
         const fD = totRows.map(tr => 'D' + tr).join('+');
