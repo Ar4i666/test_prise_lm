@@ -6,6 +6,7 @@ const crypto = require('crypto');
 
 const HouseMappingService = require('./services/HouseMappingService');
 const GoogleSheetsService = require('./services/GoogleSheetsService');
+const GenerateKpService = require('./services/GenerateKpService');
 const { localDb, remoteDb } = require('./config/database');
 
 // ─────────────────────────────────────────────────────────
@@ -64,7 +65,12 @@ function getCookie(req, name) {
 // Authentication middleware
 function authenticate(req, res, next) {
   // Public API key routes
-  if (req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses' || req.path === '/api/v1/district-prices') {
+  if (
+    req.path === '/api/v1/price-data' ||
+    req.path === '/api/v1/mapped-houses' ||
+    req.path === '/api/v1/district-prices' ||
+    req.path === '/api/v1/generate-kp'
+  ) {
     return next();
   }
   // Public tracking links
@@ -450,6 +456,47 @@ app.get('/api/v1/mapped-houses', requireApiKey, async (req, res) => {
   } catch (error) {
     console.error('Ошибка в /api/v1/mapped-houses:', error);
     res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// POST /api/v1/generate-kp — собирает смету (Excel) по выбранным секторам,
+// заливает в Nextcloud и возвращает публичную ссылку. Для внешних
+// потребителей (CRM), см. GenerateKpService.js.
+//
+// Тело запроса: {
+//   sectorMappingIds: number[],   // id строк sector_mappings
+//   clientName: string,
+//   days: number,
+//   discountPct?: number,
+//   includeVat?: boolean,
+//   includeDetailedAddress?: boolean
+// }
+// Ответ: { success, url, filename }
+// ─────────────────────────────────────────────────────────
+app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
+  try {
+    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress } = req.body || {};
+
+    if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
+    }
+    if (!clientName || !String(clientName).trim()) {
+      return res.status(400).json({ success: false, message: 'clientName обязателен' });
+    }
+
+    const sheetData = await GoogleSheetsService.getParsedAddressProgram();
+    const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
+
+    const { url, filename } = await GenerateKpService.generateAndShareKp(
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress },
+      priceList,
+    );
+
+    res.json({ success: true, url, filename });
+  } catch (error) {
+    console.error('Ошибка в /api/v1/generate-kp:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
