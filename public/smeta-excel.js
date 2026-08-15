@@ -115,9 +115,12 @@
             // В маленьких группах строки выше, чтобы объединённая «Диагональ монитора» не обрезалась
             const rowH = group.sectors.length === 1 ? 45 : group.sectors.length === 2 ? 24 : 15;
             group.sectors.forEach(sec => {
-                const perDay = includeVat ? 1.16 * sec.basePrice30d / 30 : sec.basePrice30d / 30;
+                // basePrice30d is now expected WITH VAT (matches sector_mappings
+                // prices going forward) — the without-VAT case is the derived
+                // one (divide by 1.16), reversed from the old add-on-top logic.
+                const perDay = includeVat ? sec.basePrice30d / 30 : sec.basePrice30d / 1.16 / 30;
                 const afterDisc = perDay * (1 - disc);
-                const gFormula = includeVat ? ('1.16*' + sec.basePrice30d + '/30') : (sec.basePrice30d + '/30');
+                const gFormula = includeVat ? (sec.basePrice30d + '/30') : (sec.basePrice30d + '/1.16/30');
                 set(ws, 'B' + r, group.city, S_DATA_TXT);
                 set(ws, 'C' + r, sec.name, S_DATA_TXT);
                 set(ws, 'D' + r, null, S_DATA_TXT); // объединяется ниже
@@ -140,7 +143,7 @@
 
             // Итоговая строка группы
             const sumRes = col => group.sectors.reduce((s, sec) => {
-                const perDay = includeVat ? 1.16 * sec.basePrice30d / 30 : sec.basePrice30d / 30;
+                const perDay = includeVat ? sec.basePrice30d / 30 : sec.basePrice30d / 1.16 / 30;
                 const afterDisc = perDay * (1 - disc);
                 if (col === 'F') return s + sec.monitors;
                 if (col === 'G') return s + perDay;
