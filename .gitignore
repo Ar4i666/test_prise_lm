@@ -19,3 +19,7 @@ public/uploads/*
 # misc
 .DS_Store
 *.log
+
+# локальный тестовый стенд — не часть продукта, только для разработки
+local-test-server.js
+local-price-list.json
