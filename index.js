@@ -69,7 +69,8 @@ function authenticate(req, res, next) {
     req.path === '/api/v1/price-data' ||
     req.path === '/api/v1/mapped-houses' ||
     req.path === '/api/v1/district-prices' ||
-    req.path === '/api/v1/generate-kp'
+    req.path === '/api/v1/generate-kp' ||
+    req.path === '/api/v1/sectors'
   ) {
     return next();
   }
@@ -496,6 +497,23 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
     res.json({ success: true, url, filename });
   } catch (error) {
     console.error('Ошибка в /api/v1/generate-kp:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// GET /api/v1/sectors — плоский список секторов с id, ценой и
+// человекочитаемым названием — для внешней синхронизации справочника
+// (CRM). Отдельно от price-data: там нет id секторов и есть ненужная
+// для синхронизации детализация по домам.
+// Ответ: { success, sectors: [{ id, city, is_bc, name, price }] }
+// ─────────────────────────────────────────────────────────
+app.get('/api/v1/sectors', requireApiKey, async (req, res) => {
+  try {
+    const sectors = await GenerateKpService.listSectorsForSync();
+    res.json({ success: true, sectors });
+  } catch (error) {
+    console.error('Ошибка в /api/v1/sectors:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });

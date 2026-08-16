@@ -183,4 +183,27 @@ async function generateAndShareKp(opts, priceList) {
   return { url, filename };
 }
 
-module.exports = { generateAndShareKp, buildGroups };
+/**
+ * Список секторов с id (sector_mappings.id) — для CRM-синхронизации
+ * справочника услуг. Отдельно от price-data: там нет id и есть тяжёлая
+ * детализация по домам, которая тут не нужна.
+ */
+async function listSectorsForSync() {
+  const rows = await localDb('sector_mappings').select('id', 'sheet_name', 'sheet_sector_name', 'price');
+  return rows.map((r) => ({
+    id: r.id,
+    city: baseCityName(r.sheet_name),
+    is_bc: isBcSheetName(r.sheet_name),
+    name: displaySectorName(r.sheet_sector_name, isBcSheetName(r.sheet_name)),
+    price: r.price || 0,
+  }));
+}
+
+module.exports = {
+  generateAndShareKp,
+  buildGroups,
+  listSectorsForSync,
+  baseCityName,
+  isBcSheetName,
+  displaySectorName,
+};
