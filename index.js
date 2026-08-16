@@ -7,6 +7,7 @@ const crypto = require('crypto');
 const HouseMappingService = require('./services/HouseMappingService');
 const GoogleSheetsService = require('./services/GoogleSheetsService');
 const GenerateKpService = require('./services/GenerateKpService');
+const GeneratePdfService = require('./services/GeneratePdfService');
 const { localDb, remoteDb } = require('./config/database');
 
 // ─────────────────────────────────────────────────────────
@@ -70,6 +71,7 @@ function authenticate(req, res, next) {
     req.path === '/api/v1/mapped-houses' ||
     req.path === '/api/v1/district-prices' ||
     req.path === '/api/v1/generate-kp' ||
+    req.path === '/api/v1/generate-kp-pdf' ||
     req.path === '/api/v1/sectors'
   ) {
     return next();
@@ -497,6 +499,43 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
     res.json({ success: true, url, filename });
   } catch (error) {
     console.error('Ошибка в /api/v1/generate-kp:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// POST /api/v1/generate-kp-pdf — та же смета, но в PDF (без Alpine, без
+// авторизации в браузере) — рендерится отдельным HTML-шаблоном через
+// headless Chrome (см. GeneratePdfService.js) на тех же сгруппированных
+// данных, что и Excel, поэтому суммы совпадают.
+//
+// Тело запроса: { sectorMappingIds, clientName, days, discountPct?, includeVat? }
+// Ответ: { success, url, filename }
+// Требует установленный на сервере Chrome/Chromium — путь задаётся
+// переменной окружения CHROME_EXECUTABLE_PATH.
+// ─────────────────────────────────────────────────────────
+app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
+  try {
+    const { sectorMappingIds, clientName, days, discountPct, includeVat } = req.body || {};
+
+    if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
+    }
+    if (!clientName || !String(clientName).trim()) {
+      return res.status(400).json({ success: false, message: 'clientName обязателен' });
+    }
+
+    const sheetData = await GoogleSheetsService.getParsedAddressProgram();
+    const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
+
+    const { url, filename } = await GeneratePdfService.generateAndSharePdfKp(
+      { sectorMappingIds, clientName, days, discountPct, includeVat },
+      priceList,
+    );
+
+    res.json({ success: true, url, filename });
+  } catch (error) {
+    console.error('Ошибка в /api/v1/generate-kp-pdf:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
