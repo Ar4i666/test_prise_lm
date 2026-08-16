@@ -46,6 +46,19 @@
 
     function fx(formula, result) { return { formula: formula, result: result }; }
 
+    // Защита от "битых" значений этажей — источник (Google Sheets) иногда
+    // отдаёт ячейку как дату вместо числа (классика: число без текстового
+    // формата распознаётся как дата), и тогда вместо "17" прилетает целый
+    // объект Date, чей toString() выглядит как "Thu Sep 17 2026 05:00:00
+    // GMT+0500". Показываем пусто, а не эту абракадабру.
+    function safeFloors(v) {
+        if (v == null) return '';
+        if (v instanceof Date) return '';
+        const s = String(v);
+        if (/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{4}/.test(s)) return '';
+        return s;
+    }
+
     // ------------------------------------------------------------
     // Загрузка картинок (логотип + фото мониторов) со статики сервера.
     // Файлы извлечены из шаблона Google Sheets один раз и лежат в /public.
@@ -183,20 +196,17 @@
         set(ws, 'J' + totalRow, null, S_TOTAL);
         ws.getRow(totalRow).height = 15;
 
-        // Блок с картами
+        // Ссылка на интерактивную карту с выбранными секторами (заменила
+        // старые статичные ссылки на Google Maps по городу целиком —
+        // теперь карта строится под конкретный набор секторов этого КП).
         let br = totalRow + 1;
-        set(ws, 'B' + br, 'Карта с ЖК и БЦ, где установлены мониторы:', { font: { name: 'Arial', size: 10, bold: true, color: { argb: 'FFFF0000' } } });
-        br++;
-        const LINK_FONT = { name: 'Calibri', size: 11, color: { argb: 'FF1155CC' }, underline: true };
-        const addLink = (label, url) => {
-            set(ws, 'B' + br, label, { font: FONT_TXT }); br++;
-            set(ws, 'B' + br, { text: url, hyperlink: url }, { font: LINK_FONT });
-            ws.getRow(br).height = 15; br++;
-        };
-        if (cities.includes('Алматы')) addLink('Алматы:', 'https://goo.gl/maps/oBpqdHWYyTajPoNZ9?g_st=aw');
-        if (cities.includes('Астана')) {
-            addLink('Астана 1 часть:', 'https://goo.gl/maps/V6hN6qwH9efVEck26?g_st=aw');
-            addLink('Астана 2 часть:', 'https://goo.gl/maps/axHPFgQUBZ4d4L5Y7?g_st=aw');
+        if (opts.mapUrl) {
+            const LINK_FONT = { name: 'Calibri', size: 11, color: { argb: 'FF1155CC' }, underline: true };
+            set(ws, 'B' + br, 'Карта с выбранными секторами:', { font: { name: 'Arial', size: 10, bold: true } });
+            br++;
+            set(ws, 'B' + br, { text: opts.mapUrl, hyperlink: opts.mapUrl }, { font: LINK_FONT });
+            ws.getRow(br).height = 15;
+            br++;
         }
 
         // Подписи размеров мониторов + фото
@@ -259,7 +269,7 @@
                 set(ws, 'D' + r, h.address || '', S_CELL);
                 set(ws, 'E' + r, h.monitors || 0, S_CELL);
                 set(ws, 'F' + r, h.entrances || 0, S_CELL);
-                set(ws, 'G' + r, h.floors != null ? String(h.floors) : '', Object.assign({}, S_CELL, { numFmt: '@' }));
+                set(ws, 'G' + r, safeFloors(h.floors), Object.assign({}, S_CELL, { numFmt: '@' }));
                 set(ws, 'H' + r, h.apartments || 0, S_CELL);
                 r++;
             });
@@ -329,11 +339,16 @@
         sectors.forEach(sec => {
             const hs = r;
             sec.houses.forEach(h => {
+                // Если разбивка лифт/холл не заполнена в источнике — хотя бы
+                // общее число мониторов (h.monitors) идёт в колонку "лифты",
+                // а не молчаливый ноль в обеих колонках.
+                const lift = +h.monitorsLift || 0;
+                const hall = +h.monitorsHall || 0;
                 set(ws, 'B' + r, h.name, S_NAME);
                 set(ws, 'C' + r, h.address || '', S_CELL);
-                set(ws, 'D' + r, h.monitorsLift || 0, S_CELL);
-                set(ws, 'E' + r, h.monitorsHall || 0, S_CELL);
-                set(ws, 'F' + r, h.floors != null ? String(h.floors) : '', Object.assign({}, S_CELL, { numFmt: '@' }));
+                set(ws, 'D' + r, lift + hall > 0 ? lift : (+h.monitors || 0), S_CELL);
+                set(ws, 'E' + r, hall, S_CELL);
+                set(ws, 'F' + r, safeFloors(h.floors), Object.assign({}, S_CELL, { numFmt: '@' }));
                 set(ws, 'G' + r, h.orgs || 0, S_CELL);
                 ws.getRow(r).height = 24;
                 r++;
@@ -345,11 +360,15 @@
             set(ws, 'B' + r, 'Итого (' + sec.houses.length + ' БЦ):', S_TOT_LBL);
             set(ws, 'C' + r, null, S_TOT);
             ws.mergeCells('D' + r + ':E' + r);
-            const sumLifts = sec.houses.reduce((s, h) => s + (+h.monitorsLift || 0) + (+h.monitorsHall || 0), 0);
+            const sumLifts = sec.houses.reduce((s, h) => {
+                const lift = +h.monitorsLift || 0;
+                const hall = +h.monitorsHall || 0;
+                return s + (lift + hall > 0 ? lift + hall : (+h.monitors || 0));
+            }, 0);
             const sumOrgs = sec.houses.reduce((s, h) => s + (+h.orgs || 0), 0);
             set(ws, 'D' + r, fx('SUM(D' + hs + ':E' + he + ')', sumLifts), S_TOT);
             set(ws, 'E' + r, null, S_TOT);
-            set(ws, 'F' + r, sec.houses.length === 1 ? fx('F' + hs, sec.houses[0].floors != null ? String(sec.houses[0].floors) : '') : null, S_TOT);
+            set(ws, 'F' + r, sec.houses.length === 1 ? fx('F' + hs, safeFloors(sec.houses[0].floors)) : null, S_TOT);
             set(ws, 'G' + r, fx('SUM(G' + hs + ':G' + he + ')', sumOrgs), S_TOT);
             totRows.push(r);
             r++;

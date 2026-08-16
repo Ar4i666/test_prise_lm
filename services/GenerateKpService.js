@@ -166,6 +166,18 @@ async function generateAndShareKp(opts, priceList) {
 
   const media = loadMediaFromDisk();
 
+  // Ссылка на карту — не блокирующая: если создание ссылки не удалось
+  // (например, ещё нет таблицы map_links на старом окружении), КП всё
+  // равно должно сгенерироваться, просто без ссылки на карту.
+  let mapUrl = null;
+  if (opts.origin) {
+    try {
+      mapUrl = await createMapShareLink(opts.sectorMappingIds, opts.origin);
+    } catch (e) {
+      console.error('Не удалось создать ссылку на карту:', e.message);
+    }
+  }
+
   const wb = await SmetaExcel.buildSmetaWorkbook(ExcelJS, {
     clientName: opts.clientName,
     days: parseInt(opts.days, 10) || 30,
@@ -174,6 +186,7 @@ async function generateAndShareKp(opts, priceList) {
     groups,
     addressPrograms,
     media,
+    mapUrl,
   });
 
   const buffer = await wb.xlsx.writeBuffer();

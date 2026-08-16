@@ -510,8 +510,9 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
     const sheetData = await GoogleSheetsService.getParsedAddressProgram();
     const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
 
+    const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const { url, filename } = await GenerateKpService.generateAndShareKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, origin },
       priceList,
     );
 
@@ -547,8 +548,9 @@ app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
     const sheetData = await GoogleSheetsService.getParsedAddressProgram();
     const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
 
+    const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const { url, filename } = await GeneratePdfService.generateAndSharePdfKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt, origin },
       priceList,
     );
 

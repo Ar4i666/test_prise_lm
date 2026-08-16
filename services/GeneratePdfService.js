@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const puppeteer = require('puppeteer-core');
-const { buildGroups } = require('./GenerateKpService');
+const { buildGroups, createMapShareLink } = require('./GenerateKpService');
 const { localDb } = require('../config/database');
 const { uploadFileToNextcloud, createPublicShareLink } = require('./nextcloud');
 
@@ -78,7 +78,7 @@ function sectorMetrics(sec, days, discount, includeVat) {
 }
 
 function buildCoverPage(opts, groups, letterhead, logo) {
-  const { clientName, days, discountPct, includeVat, managerName, managerPhoneExt } = opts;
+  const { clientName, days, discountPct, includeVat, managerName, managerPhoneExt, mapUrl } = opts;
   const discount = discountPct > 0 ? discountPct : 0;
   const today = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const validity = new Date();
@@ -134,6 +134,7 @@ function buildCoverPage(opts, groups, letterhead, logo) {
       <p>С уважением, ${managerName ? esc(managerName) : 'команда LiftMedia'}${
         managerName ? `, +7 700 097 22 77${managerPhoneExt ? ' вн. ' + esc(managerPhoneExt) : ''}` : ''
       }</p>
+      ${mapUrl ? `<p style="margin-top:4px"><a href="${esc(mapUrl)}" style="color:#009782;font-weight:700;text-decoration:underline">Посмотреть выбранные секторы на карте</a></p>` : ''}
       <p class="validity">Цены действительны до ${validityDate} г.</p>
     </div>
   </div>`;
@@ -467,6 +468,16 @@ async function generateAndSharePdfKp(opts, priceList) {
     throw new Error('Выбранные сектора не найдены в текущем прайс-листе (сверьте с /api/v1/price-data)');
   }
 
+  // Ссылка на карту — не блокирующая, см. комментарий в generateAndShareKp.
+  let mapUrl = null;
+  if (opts.origin) {
+    try {
+      mapUrl = await createMapShareLink(opts.sectorMappingIds, opts.origin);
+    } catch (e) {
+      console.error('Не удалось создать ссылку на карту:', e.message);
+    }
+  }
+
   const html = buildSmetaHtml({
     clientName: opts.clientName,
     days: parseInt(opts.days, 10) || 30,
@@ -474,6 +485,7 @@ async function generateAndSharePdfKp(opts, priceList) {
     includeVat: !!opts.includeVat,
     managerName: opts.managerName,
     managerPhoneExt: opts.managerPhoneExt,
+    mapUrl,
     groups,
     addressPrograms,
   });
