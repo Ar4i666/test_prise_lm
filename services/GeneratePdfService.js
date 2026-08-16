@@ -41,6 +41,19 @@ function num(n) {
   return Math.round(n).toLocaleString('ru-RU');
 }
 
+// Защита от "битых" значений этажей — источник (Google Sheets) иногда
+// отдаёт ячейку как дату (Excel/Sheets классика: число в ячейке без
+// текстового формата распознаётся как дата), и тогда вместо "17" прилетает
+// целый объект Date, чей toString() выглядит как "Thu Sep 17 2026 ...".
+// Показываем пусто, а не эту абракадабру.
+function safeFloors(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return '';
+  const s = String(v);
+  if (/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{4}/.test(s)) return '';
+  return esc(s);
+}
+
 function fileDataUri(filename) {
   const filePath = path.join(__dirname, '..', 'public', filename);
   if (!fs.existsSync(filePath)) return null;
@@ -65,7 +78,7 @@ function sectorMetrics(sec, days, discount, includeVat) {
 }
 
 function buildCoverPage(opts, groups, letterhead, logo) {
-  const { clientName, days, discountPct, includeVat } = opts;
+  const { clientName, days, discountPct, includeVat, managerName, managerPhoneExt } = opts;
   const discount = discountPct > 0 ? discountPct : 0;
   const today = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const validity = new Date();
@@ -118,7 +131,9 @@ function buildCoverPage(opts, groups, letterhead, logo) {
     </div>
 
     <div class="cover-footer">
-      <p>С уважением, команда LiftMedia</p>
+      <p>С уважением, ${managerName ? esc(managerName) : 'команда LiftMedia'}${
+        managerName ? `, +7 700 097 22 77${managerPhoneExt ? ' вн. ' + esc(managerPhoneExt) : ''}` : ''
+      }</p>
       <p class="validity">Цены действительны до ${validityDate} г.</p>
     </div>
   </div>`;
@@ -157,23 +172,25 @@ function buildAppendixPage(opts, groups) {
     grand.sum += subtotal.sum;
 
     return `
-      <h3 class="group-title">${esc(group.label.toUpperCase())}</h3>
-      <table>
-        <thead>
-          <tr><th>Сектор</th><th class="num">Объектов</th><th class="num">Мониторов</th><th class="num">Квартир</th><th class="num">Показов</th><th class="num">Сумма (${days} дн.)</th></tr>
-        </thead>
-        <tbody>
-          ${rows}
-          <tr class="subtotal">
-            <td>Итого: ${esc(group.label)}</td>
-            <td class="num">${num(subtotal.objects)}</td>
-            <td class="num">${num(subtotal.monitors)}</td>
-            <td class="num">${num(subtotal.units)}</td>
-            <td class="num">${num(subtotal.shows)}</td>
-            <td class="num">${money(subtotal.sum)}</td>
-          </tr>
-        </tbody>
-      </table>`;
+      <div class="group-block">
+        <h3 class="group-title">${esc(group.label.toUpperCase())}</h3>
+        <table>
+          <thead>
+            <tr><th>Сектор</th><th class="num">Объектов</th><th class="num">Мониторов</th><th class="num">Квартир</th><th class="num">Показов</th><th class="num">Сумма (${days} дн.)</th></tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr class="subtotal">
+              <td>Итого: ${esc(group.label)}</td>
+              <td class="num">${num(subtotal.objects)}</td>
+              <td class="num">${num(subtotal.monitors)}</td>
+              <td class="num">${num(subtotal.units)}</td>
+              <td class="num">${num(subtotal.shows)}</td>
+              <td class="num">${money(subtotal.sum)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
   }).join('');
 
   return `
@@ -203,14 +220,18 @@ function buildAppendixPage(opts, groups) {
 // includeDetailedAddress=true.
 function buildApJkTable(city, sectors) {
   let totalHouses = 0, totalMonitors = 0, totalEntrances = 0, totalApartments = 0;
-  const sectorBlocks = sectors.map((sec) => {
+
+  // Каждый сектор — отдельная <table> в своём блоке с page-break-inside:
+  // avoid, чтобы сектор целиком переезжал на следующую страницу, а не
+  // резался пополам между домами.
+  const sectorTables = sectors.map((sec) => {
     const rows = sec.houses.map((h) => `
       <tr>
         <td>${esc(h.name)}</td>
         <td>${esc(h.address || '')}</td>
         <td class="num">${num(h.monitors || 0)}</td>
         <td class="num">${num(h.entrances || 0)}</td>
-        <td class="num">${h.floors != null ? esc(String(h.floors)) : ''}</td>
+        <td class="num">${safeFloors(h.floors)}</td>
         <td class="num">${num(h.apartments || 0)}</td>
       </tr>`).join('');
     const sMonitors = sec.houses.reduce((s, h) => s + (Number(h.monitors) || 0), 0);
@@ -221,25 +242,31 @@ function buildApJkTable(city, sectors) {
     totalEntrances += sEntrances;
     totalApartments += sApartments;
     return `
-      <tr class="sector-row"><td colspan="6">${esc(sec.name)}</td></tr>
-      ${rows}
-      <tr class="subtotal">
-        <td colspan="2">Итого (${sec.houses.length} ЖК):</td>
-        <td class="num">${num(sMonitors)}</td>
-        <td class="num">${num(sEntrances)}</td>
-        <td class="num"></td>
-        <td class="num">${num(sApartments)}</td>
-      </tr>`;
+      <div class="sector-block">
+        <table>
+          <thead>
+            <tr class="sector-row"><th colspan="6">${esc(sec.name)}</th></tr>
+            <tr><th>Название ЖК</th><th>Адрес</th><th class="num">Мониторов</th><th class="num">Подъездов</th><th class="num">Этажей</th><th class="num">Квартир</th></tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr class="subtotal">
+              <td colspan="2">Итого (${sec.houses.length} ЖК):</td>
+              <td class="num">${num(sMonitors)}</td>
+              <td class="num">${num(sEntrances)}</td>
+              <td class="num"></td>
+              <td class="num">${num(sApartments)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
   }).join('');
 
   return `
     <h3 class="group-title">ЖК Г. ${esc(city.toUpperCase())}</h3>
-    <table>
-      <thead>
-        <tr><th>Название ЖК</th><th>Адрес</th><th class="num">Мониторов</th><th class="num">Подъездов</th><th class="num">Этажей</th><th class="num">Квартир</th></tr>
-      </thead>
+    ${sectorTables}
+    <table class="ap-grand-total">
       <tbody>
-        ${sectorBlocks}
         <tr class="grand-row">
           <td colspan="2">Итого по всем секторам (${totalHouses} ЖК):</td>
           <td class="num">${num(totalMonitors)}</td>
@@ -253,43 +280,60 @@ function buildApJkTable(city, sectors) {
 
 function buildApBcTable(city, sectors) {
   let totalHouses = 0, totalMonitors = 0, totalOrgs = 0;
-  const sectorBlocks = sectors.map((sec) => {
-    const rows = sec.houses.map((h) => `
+
+  const sectorTables = sectors.map((sec) => {
+    const rows = sec.houses.map((h) => {
+      // Если разбивка лифт/холл не заполнена в источнике — показываем хотя
+      // бы общее число мониторов, а не молчаливый ноль.
+      const lift = Number(h.monitorsLift) || 0;
+      const hall = Number(h.monitorsHall) || 0;
+      const total = lift + hall > 0 ? lift + hall : Number(h.monitors) || 0;
+      return `
       <tr>
         <td>${esc(h.name)}</td>
         <td>${esc(h.address || '')}</td>
-        <td class="num">${num(h.monitorsLift || 0)}</td>
-        <td class="num">${num(h.monitorsHall || 0)}</td>
-        <td class="num">${h.floors != null ? esc(String(h.floors)) : ''}</td>
+        <td class="num">${num(total)}</td>
+        <td class="num">${safeFloors(h.floors)}</td>
         <td class="num">${num(h.orgs || 0)}</td>
-      </tr>`).join('');
-    const sMonitors = sec.houses.reduce((s, h) => s + (Number(h.monitorsLift) || 0) + (Number(h.monitorsHall) || 0), 0);
+      </tr>`;
+    }).join('');
+    const sMonitors = sec.houses.reduce((s, h) => {
+      const lift = Number(h.monitorsLift) || 0;
+      const hall = Number(h.monitorsHall) || 0;
+      return s + (lift + hall > 0 ? lift + hall : Number(h.monitors) || 0);
+    }, 0);
     const sOrgs = sec.houses.reduce((s, h) => s + (Number(h.orgs) || 0), 0);
     totalHouses += sec.houses.length;
     totalMonitors += sMonitors;
     totalOrgs += sOrgs;
     return `
-      <tr class="sector-row"><td colspan="6">${esc(sec.name)}</td></tr>
-      ${rows}
-      <tr class="subtotal">
-        <td colspan="2">Итого (${sec.houses.length} БЦ):</td>
-        <td colspan="2" class="num">${num(sMonitors)}</td>
-        <td class="num"></td>
-        <td class="num">${num(sOrgs)}</td>
-      </tr>`;
+      <div class="sector-block">
+        <table>
+          <thead>
+            <tr class="sector-row"><th colspan="5">${esc(sec.name)}</th></tr>
+            <tr><th>Бизнес-центр</th><th>Адрес</th><th class="num">Мониторов</th><th class="num">Этажей</th><th class="num">Организаций</th></tr>
+          </thead>
+          <tbody>
+            ${rows}
+            <tr class="subtotal">
+              <td colspan="2">Итого (${sec.houses.length} БЦ):</td>
+              <td class="num">${num(sMonitors)}</td>
+              <td class="num"></td>
+              <td class="num">${num(sOrgs)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`;
   }).join('');
 
   return `
     <h3 class="group-title">БЦ Г. ${esc(city.toUpperCase())}</h3>
-    <table>
-      <thead>
-        <tr><th>Бизнес-центр</th><th>Адрес</th><th class="num">Мониторы в лифтах</th><th class="num">Мониторы в холлах</th><th class="num">Этажей</th><th class="num">Организаций</th></tr>
-      </thead>
+    ${sectorTables}
+    <table class="ap-grand-total">
       <tbody>
-        ${sectorBlocks}
         <tr class="grand-row">
           <td colspan="2">Итого по всем БЦ (${totalHouses} БЦ):</td>
-          <td colspan="2" class="num">${num(totalMonitors)}</td>
+          <td class="num">${num(totalMonitors)}</td>
           <td class="num"></td>
           <td class="num">${num(totalOrgs)}</td>
         </tr>
@@ -327,48 +371,56 @@ function buildSmetaHtml(opts) {
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   @page { size: A4 portrait; margin: 0; }
-  body { font-family: 'DejaVu Sans', Arial, sans-serif; color: #1e293b; font-size: 11px; line-height: 1.4; }
+  body { font-family: 'Inter', 'DejaVu Sans', Arial, sans-serif; color: #1e293b; font-size: 12.5px; line-height: 1.4; }
 
+  /* Типографика по масштабу золотого сечения (~1.6): заголовок "Коммерческое
+     предложение" (20px) — опорный размер, текст под ним — 20/1.6 ≈ 12.5px,
+     остальные размеры на обложке пересчитаны от этой же пары. */
   .cover-page {
     width: 210mm; height: 297mm; padding: 55mm 18mm 25mm 18mm;
     background-size: cover; background-position: top center; background-repeat: no-repeat;
     display: flex; flex-direction: column; page-break-after: always;
   }
-  .cover-title { text-align: center; font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em; color: #111827; margin-bottom: 14px; }
-  .cover-intro { font-size: 10px; color: #4b5563; line-height: 1.6; margin-bottom: 14px; }
-  .info-box, .summary-box { border: 2px solid #00c0a5; border-radius: 10px; padding: 12px 16px; margin-bottom: 14px; }
+  .cover-title { text-align: center; font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.03em; color: #111827; margin-bottom: 16px; }
+  .cover-intro { font-size: 12.5px; color: #4b5563; line-height: 1.6; margin-bottom: 16px; }
+  .info-box, .summary-box { border: 2px solid #00c0a5; border-radius: 10px; padding: 14px 18px; margin-bottom: 16px; }
   .info-box { display: flex; justify-content: space-between; }
   .info-box .align-right { text-align: right; }
-  .label { color: #9ca3af; text-transform: uppercase; font-size: 8.5px; font-weight: 700; letter-spacing: 0.04em; }
-  .value { font-weight: 800; font-size: 12px; color: #111827; margin-top: 2px; }
-  .summary-box h3 { font-size: 10.5px; font-weight: 900; text-transform: uppercase; color: #00806e; border-bottom: 2px solid #00c0a5; padding-bottom: 6px; margin-bottom: 10px; letter-spacing: 0.03em; }
-  .summary-grid { display: flex; gap: 20px; }
-  .summary-left { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
-  .summary-right { flex: 1; border-left: 1px solid #e2e8f0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; }
-  .row { display: flex; justify-content: space-between; font-size: 10px; }
+  .label { color: #9ca3af; text-transform: uppercase; font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; }
+  .value { font-weight: 800; font-size: 14px; color: #111827; margin-top: 2px; }
+  .summary-box h3 { font-size: 13px; font-weight: 900; text-transform: uppercase; color: #00806e; border-bottom: 2px solid #00c0a5; padding-bottom: 7px; margin-bottom: 11px; letter-spacing: 0.03em; }
+  .summary-grid { display: flex; gap: 22px; }
+  .summary-left { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+  .summary-right { flex: 1; border-left: 1px solid #e2e8f0; padding-left: 18px; display: flex; flex-direction: column; gap: 5px; }
+  .row { display: flex; justify-content: space-between; font-size: 12px; }
   .row.discount { color: #dc2626; font-weight: 700; }
-  .row.grand { font-size: 12.5px; font-weight: 900; color: #005f54; border-top: 2px dashed #cbd5e1; padding-top: 6px; margin-top: 4px; text-transform: uppercase; }
-  .cover-footer { margin-top: auto; text-align: center; font-size: 9.5px; color: #4b5563; }
-  .cover-footer .validity { margin-top: 6px; display: inline-block; background: #fffbeb; color: #78350f; border: 1px solid #fde68a; border-radius: 6px; padding: 4px 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 8.5px; }
+  .row.grand { font-size: 15px; font-weight: 900; color: #005f54; border-top: 2px dashed #cbd5e1; padding-top: 7px; margin-top: 5px; text-transform: uppercase; }
+  .cover-footer { margin-top: auto; text-align: center; font-size: 11px; color: #4b5563; }
+  .cover-footer .validity { margin-top: 7px; display: inline-block; background: #fffbeb; color: #78350f; border: 1px solid #fde68a; border-radius: 6px; padding: 5px 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; font-size: 9.5px; }
 
   .appendix-page { padding: 14mm 14mm 14mm 14mm; }
-  .appendix-title { font-size: 13px; font-weight: 900; text-transform: uppercase; color: #111827; margin-bottom: 4px; }
-  .appendix-sub { font-size: 9.5px; color: #6b7280; margin-bottom: 12px; }
-  .group-title { font-size: 10.5px; font-weight: 800; color: #00806e; margin: 14px 0 6px; text-transform: uppercase; }
+  .appendix-title { font-size: 16px; font-weight: 800; text-transform: uppercase; color: #111827; margin-bottom: 5px; letter-spacing: 0.01em; }
+  .appendix-sub { font-size: 10.5px; color: #6b7280; margin-bottom: 14px; }
+  .group-title { font-size: 12.5px; font-weight: 700; color: #00806e; margin: 16px 0 7px; text-transform: uppercase; letter-spacing: 0.01em; }
+  .group-block, .sector-block { page-break-inside: avoid; break-inside: avoid; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
-  th, td { border: 1px solid #e2e8f0; padding: 4px 7px; text-align: left; font-size: 9.5px; }
-  th { background: #f0fdfa; font-size: 8.5px; text-transform: uppercase; color: #374151; }
+  th, td { border: 1px solid #e5e7eb; padding: 5px 8px; text-align: left; font-size: 10.5px; font-weight: 400; }
+  th { background: #f8fafc; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: #64748b; }
   td.num, th.num { text-align: right; }
-  tr.subtotal td { background: #ecfdf5; font-weight: 700; }
-  tr.subtotal tr { page-break-inside: avoid; }
+  tr.subtotal td { background: #f0fdfa; font-weight: 700; color: #00594e; }
   table tr { page-break-inside: avoid; }
-  .grand-total-table { margin-top: 16px; }
-  .grand-total-table td { background: #4C545D; color: #fff; font-weight: 900; font-size: 10px; border-color: #4C545D; }
-  tr.sector-row td { background: #00c0a5; color: #fff; font-weight: 700; font-size: 9.5px; }
-  tr.grand-row td { background: #4C545D; color: #fff; font-weight: 900; }
+  tr.sector-row th { background: #00c0a5; color: #fff; font-weight: 700; font-size: 10.5px; text-transform: none; letter-spacing: 0; padding: 6px 8px; }
+
+  /* Общий итог — светлая карточка в фирменном цвете вместо сплошного
+     тёмно-серого блока, спокойнее смотрится рядом с остальной таблицей. */
+  .grand-total-table, .ap-grand-total { margin-top: 14px; border: 2px solid #00c0a5; border-radius: 8px; overflow: hidden; }
+  .grand-total-table td, .ap-grand-total td { background: #f0fdfa; color: #005f54; font-weight: 800; font-size: 11px; border: none; border-right: 1px solid #ccf3ea; padding: 9px 12px; }
+  .grand-total-table td:last-child, .ap-grand-total td:last-child { border-right: none; }
+  tr.grand-row td, tr.grand-total td { background: #f0fdfa; color: #005f54; }
 </style>
 </head>
 <body>
@@ -385,7 +437,9 @@ async function htmlToPdfBuffer(html) {
   const browser = await puppeteer.launch({ executablePath, headless: true });
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'load' });
+    // 'networkidle0' — ждём, пока догрузится шрифт Inter с Google Fonts
+    // (просто 'load' иногда срабатывает раньше, чем шрифт применился).
+    await page.setContent(html, { waitUntil: 'networkidle0' });
     const buffer = await page.pdf({ format: 'A4', printBackground: true });
     return buffer;
   } finally {
@@ -418,6 +472,8 @@ async function generateAndSharePdfKp(opts, priceList) {
     days: parseInt(opts.days, 10) || 30,
     discountPct: opts.discountPct > 0 ? opts.discountPct : 0,
     includeVat: !!opts.includeVat,
+    managerName: opts.managerName,
+    managerPhoneExt: opts.managerPhoneExt,
     groups,
     addressPrograms,
   });

@@ -516,7 +516,7 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
 // ─────────────────────────────────────────────────────────
 app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
   try {
-    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress } = req.body || {};
+    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt } = req.body || {};
 
     if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
       return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
@@ -529,7 +529,7 @@ app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
     const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
 
     const { url, filename } = await GeneratePdfService.generateAndSharePdfKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt },
       priceList,
     );
 

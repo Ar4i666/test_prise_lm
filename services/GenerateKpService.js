@@ -102,6 +102,9 @@ function buildGroups(priceList, sectorKeys, includeDetailedAddress) {
               address: item.sheet_address,
               monitorsLift: item.monitors_lift,
               monitorsHall: item.monitors_hall,
+              // Резерв на случай, когда разбивка лифт/холл не заполнена в
+              // источнике — тогда хотя бы общее число мониторов не потеряется.
+              monitors: item.actual_monitors,
               floors: item.floors,
               orgs: item.apartments,
             }
