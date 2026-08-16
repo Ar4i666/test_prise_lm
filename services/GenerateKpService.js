@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const SmetaExcel = require('../public/smeta-excel.js');
 const { localDb } = require('../config/database');
@@ -202,10 +203,42 @@ async function listSectorsForSync() {
   }));
 }
 
+// Ссылка на интерактивную карту (public/map.html) с выбранными
+// секторами — сама карта и хранилище коротких ссылок (таблица
+// map_links) уже существовали и работали для залогиненных пользователей
+// браузера (кнопка "Копировать ссылку на карту" в генераторе), просто
+// не были доступны серверному API-key потоку (CRM). Формат данных —
+// тот же, что строит клиентский copyMapLink() в public/index.html:
+// "sheet_name:sheet_sector_name" через запятую, url-encoded.
+async function createMapShareLink(sectorMappingIds, origin) {
+  const mappings = await localDb('sector_mappings')
+    .whereIn('id', sectorMappingIds)
+    .select('sheet_name', 'sheet_sector_name');
+
+  if (mappings.length === 0) {
+    throw new Error('Не найдено ни одного сектора по переданным sectorMappingIds');
+  }
+
+  const sectorsFormatted = mappings
+    .map((m) => encodeURIComponent(`${m.sheet_name}:${m.sheet_sector_name}`))
+    .join(',');
+
+  const id = crypto.randomUUID().slice(0, 8);
+  await localDb('map_links').insert({
+    id,
+    sectors_data: sectorsFormatted,
+    created_at: localDb.fn.now(),
+    updated_at: localDb.fn.now(),
+  });
+
+  return `${origin}/map.html?c=${id}`;
+}
+
 module.exports = {
   generateAndShareKp,
   buildGroups,
   listSectorsForSync,
+  createMapShareLink,
   baseCityName,
   isBcSheetName,
   displaySectorName,

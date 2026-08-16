@@ -72,7 +72,8 @@ function authenticate(req, res, next) {
     req.path === '/api/v1/district-prices' ||
     req.path === '/api/v1/generate-kp' ||
     req.path === '/api/v1/generate-kp-pdf' ||
-    req.path === '/api/v1/sectors'
+    req.path === '/api/v1/sectors' ||
+    req.path === '/api/v1/share-map'
   ) {
     return next();
   }
@@ -167,7 +168,25 @@ function checkRole(req, res, next) {
   }
 
   // Public paths
-  if (req.path === '/api/login' || req.path === '/api/config' || req.path === '/api/v1/price-data' || req.path === '/api/v1/mapped-houses' || req.path === '/api/v1/district-prices' || req.path.startsWith('/p/') || (req.path.startsWith('/api/share-map/') && req.method === 'GET')) {
+  if (
+    req.path === '/api/login' ||
+    req.path === '/api/config' ||
+    req.path === '/api/v1/price-data' ||
+    req.path === '/api/v1/mapped-houses' ||
+    req.path === '/api/v1/district-prices' ||
+    // API-key-защищённые v1-эндпоинты (requireApiKey на самом роуте) — сюда
+    // authenticate() уже не кладёт req.user (не сессия браузера), так что
+    // без этого исключения checkRole ошибочно возвращал бы 401 даже с
+    // валидным API-ключом. Раньше этого не заметили — local-test-server.js
+    // (наш стенд для проверки) не гоняет этот мидлвар вообще, поэтому баг
+    // не проявлялся при тестах.
+    req.path === '/api/v1/generate-kp' ||
+    req.path === '/api/v1/generate-kp-pdf' ||
+    req.path === '/api/v1/sectors' ||
+    req.path === '/api/v1/share-map' ||
+    req.path.startsWith('/p/') ||
+    (req.path.startsWith('/api/share-map/') && req.method === 'GET')
+  ) {
     return next();
   }
 
@@ -553,6 +572,32 @@ app.get('/api/v1/sectors', requireApiKey, async (req, res) => {
     res.json({ success: true, sectors });
   } catch (error) {
     console.error('Ошибка в /api/v1/sectors:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────
+// POST /api/v1/share-map — короткая ссылка на интерактивную карту
+// (public/map.html) с выбранными секторами. Сама карта и хранилище
+// ссылок (map_links) уже существовали для залогиненных пользователей
+// браузера — этот роут даёт тот же результат серверному API-key потоку
+// (CRM), см. GenerateKpService.createMapShareLink().
+//
+// Тело запроса: { sectorMappingIds: number[] }
+// Ответ: { success, url }
+// ─────────────────────────────────────────────────────────
+app.post('/api/v1/share-map', requireApiKey, async (req, res) => {
+  try {
+    const { sectorMappingIds } = req.body || {};
+    if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
+    }
+
+    const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const url = await GenerateKpService.createMapShareLink(sectorMappingIds, origin);
+    res.json({ success: true, url });
+  } catch (error) {
+    console.error('Ошибка в /api/v1/share-map:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 });
