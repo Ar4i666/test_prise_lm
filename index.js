@@ -509,14 +509,14 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
 // headless Chrome (см. GeneratePdfService.js) на тех же сгруппированных
 // данных, что и Excel, поэтому суммы совпадают.
 //
-// Тело запроса: { sectorMappingIds, clientName, days, discountPct?, includeVat? }
+// Тело запроса: { sectorMappingIds, clientName, days, discountPct?, includeVat?, includeDetailedAddress? }
 // Ответ: { success, url, filename }
 // Требует установленный на сервере Chrome/Chromium — путь задаётся
 // переменной окружения CHROME_EXECUTABLE_PATH.
 // ─────────────────────────────────────────────────────────
 app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
   try {
-    const { sectorMappingIds, clientName, days, discountPct, includeVat } = req.body || {};
+    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress } = req.body || {};
 
     if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
       return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
@@ -529,7 +529,7 @@ app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
     const priceList = await HouseMappingService.generateFinalPriceList(sheetData);
 
     const { url, filename } = await GeneratePdfService.generateAndSharePdfKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress },
       priceList,
     );
 

@@ -196,8 +196,130 @@ function buildAppendixPage(opts, groups) {
   </div>`;
 }
 
+// Приложение №2 — та же адресная программа по домам, что уходит на
+// отдельные листы Excel (buildApJkSheet/buildApBcSheet), только в виде
+// печатных HTML-таблиц. addressPrograms: { [city]: { jk: [{name, houses}],
+// bc: [{name, houses}] } } — то же, что возвращает buildGroups() при
+// includeDetailedAddress=true.
+function buildApJkTable(city, sectors) {
+  let totalHouses = 0, totalMonitors = 0, totalEntrances = 0, totalApartments = 0;
+  const sectorBlocks = sectors.map((sec) => {
+    const rows = sec.houses.map((h) => `
+      <tr>
+        <td>${esc(h.name)}</td>
+        <td>${esc(h.address || '')}</td>
+        <td class="num">${num(h.monitors || 0)}</td>
+        <td class="num">${num(h.entrances || 0)}</td>
+        <td class="num">${h.floors != null ? esc(String(h.floors)) : ''}</td>
+        <td class="num">${num(h.apartments || 0)}</td>
+      </tr>`).join('');
+    const sMonitors = sec.houses.reduce((s, h) => s + (Number(h.monitors) || 0), 0);
+    const sEntrances = sec.houses.reduce((s, h) => s + (Number(h.entrances) || 0), 0);
+    const sApartments = sec.houses.reduce((s, h) => s + (Number(h.apartments) || 0), 0);
+    totalHouses += sec.houses.length;
+    totalMonitors += sMonitors;
+    totalEntrances += sEntrances;
+    totalApartments += sApartments;
+    return `
+      <tr class="sector-row"><td colspan="6">${esc(sec.name)}</td></tr>
+      ${rows}
+      <tr class="subtotal">
+        <td colspan="2">Итого (${sec.houses.length} ЖК):</td>
+        <td class="num">${num(sMonitors)}</td>
+        <td class="num">${num(sEntrances)}</td>
+        <td class="num"></td>
+        <td class="num">${num(sApartments)}</td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <h3 class="group-title">ЖК Г. ${esc(city.toUpperCase())}</h3>
+    <table>
+      <thead>
+        <tr><th>Название ЖК</th><th>Адрес</th><th class="num">Мониторов</th><th class="num">Подъездов</th><th class="num">Этажей</th><th class="num">Квартир</th></tr>
+      </thead>
+      <tbody>
+        ${sectorBlocks}
+        <tr class="grand-row">
+          <td colspan="2">Итого по всем секторам (${totalHouses} ЖК):</td>
+          <td class="num">${num(totalMonitors)}</td>
+          <td class="num">${num(totalEntrances)}</td>
+          <td class="num"></td>
+          <td class="num">${num(totalApartments)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function buildApBcTable(city, sectors) {
+  let totalHouses = 0, totalMonitors = 0, totalOrgs = 0;
+  const sectorBlocks = sectors.map((sec) => {
+    const rows = sec.houses.map((h) => `
+      <tr>
+        <td>${esc(h.name)}</td>
+        <td>${esc(h.address || '')}</td>
+        <td class="num">${num(h.monitorsLift || 0)}</td>
+        <td class="num">${num(h.monitorsHall || 0)}</td>
+        <td class="num">${h.floors != null ? esc(String(h.floors)) : ''}</td>
+        <td class="num">${num(h.orgs || 0)}</td>
+      </tr>`).join('');
+    const sMonitors = sec.houses.reduce((s, h) => s + (Number(h.monitorsLift) || 0) + (Number(h.monitorsHall) || 0), 0);
+    const sOrgs = sec.houses.reduce((s, h) => s + (Number(h.orgs) || 0), 0);
+    totalHouses += sec.houses.length;
+    totalMonitors += sMonitors;
+    totalOrgs += sOrgs;
+    return `
+      <tr class="sector-row"><td colspan="6">${esc(sec.name)}</td></tr>
+      ${rows}
+      <tr class="subtotal">
+        <td colspan="2">Итого (${sec.houses.length} БЦ):</td>
+        <td colspan="2" class="num">${num(sMonitors)}</td>
+        <td class="num"></td>
+        <td class="num">${num(sOrgs)}</td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <h3 class="group-title">БЦ Г. ${esc(city.toUpperCase())}</h3>
+    <table>
+      <thead>
+        <tr><th>Бизнес-центр</th><th>Адрес</th><th class="num">Мониторы в лифтах</th><th class="num">Мониторы в холлах</th><th class="num">Этажей</th><th class="num">Организаций</th></tr>
+      </thead>
+      <tbody>
+        ${sectorBlocks}
+        <tr class="grand-row">
+          <td colspan="2">Итого по всем БЦ (${totalHouses} БЦ):</td>
+          <td colspan="2" class="num">${num(totalMonitors)}</td>
+          <td class="num"></td>
+          <td class="num">${num(totalOrgs)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function buildAddressAppendixPage(addressPrograms, days) {
+  if (!addressPrograms) return '';
+  const cityOrder = ['Астана', 'Алматы'];
+  const cities = Object.keys(addressPrograms).sort(
+    (a, b) => cityOrder.indexOf(a) - cityOrder.indexOf(b),
+  );
+  const blocks = cities.map((city) => {
+    const ap = addressPrograms[city];
+    const jk = ap.jk && ap.jk.length ? buildApJkTable(city, ap.jk) : '';
+    const bc = ap.bc && ap.bc.length ? buildApBcTable(city, ap.bc) : '';
+    return jk + bc;
+  }).join('');
+
+  return `
+  <div class="appendix-page">
+    <h2 class="appendix-title">Приложение №2: подробная адресная программа</h2>
+    <p class="appendix-sub">Срок размещения: ${days} дн.</p>
+    ${blocks}
+  </div>`;
+}
+
 function buildSmetaHtml(opts) {
-  const { groups } = opts;
+  const { groups, addressPrograms, days } = opts;
   const letterhead = fileDataUri('blank_astana.jpg');
   const logo = fileDataUri('smeta-logo.png');
 
@@ -245,11 +367,14 @@ function buildSmetaHtml(opts) {
   table tr { page-break-inside: avoid; }
   .grand-total-table { margin-top: 16px; }
   .grand-total-table td { background: #4C545D; color: #fff; font-weight: 900; font-size: 10px; border-color: #4C545D; }
+  tr.sector-row td { background: #00c0a5; color: #fff; font-weight: 700; font-size: 9.5px; }
+  tr.grand-row td { background: #4C545D; color: #fff; font-weight: 900; }
 </style>
 </head>
 <body>
   ${buildCoverPage(opts, groups, letterhead, logo)}
   ${buildAppendixPage(opts, groups)}
+  ${buildAddressAppendixPage(addressPrograms, days)}
 </body>
 </html>`;
 }
@@ -283,7 +408,7 @@ async function generateAndSharePdfKp(opts, priceList) {
   }
   const sectorKeys = new Set(mappings.map((m) => `${m.sheet_name}|${m.sheet_sector_name}`));
 
-  const { groups } = buildGroups(priceList, sectorKeys, false);
+  const { groups, addressPrograms } = buildGroups(priceList, sectorKeys, !!opts.includeDetailedAddress);
   if (groups.length === 0) {
     throw new Error('Выбранные сектора не найдены в текущем прайс-листе (сверьте с /api/v1/price-data)');
   }
@@ -294,6 +419,7 @@ async function generateAndSharePdfKp(opts, priceList) {
     discountPct: opts.discountPct > 0 ? opts.discountPct : 0,
     includeVat: !!opts.includeVat,
     groups,
+    addressPrograms,
   });
 
   const buffer = await htmlToPdfBuffer(html);
