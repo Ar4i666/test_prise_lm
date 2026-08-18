@@ -492,13 +492,17 @@ app.get('/api/v1/mapped-houses', requireApiKey, async (req, res) => {
 //   days: number,
 //   discountPct?: number,
 //   includeVat?: boolean,
-//   includeDetailedAddress?: boolean
+//   includeDetailedAddress?: boolean,
+//   dealFolderKey?: string   // CRM opportunityId — все КП (Excel+PDF) этой
+//                            // сделки лягут в общую подпапку, ссылка в
+//                            // ответе будет на ЭТУ ПАПКУ (переиспользуется
+//                            // между генерациями), а не на отдельный файл
 // }
 // Ответ: { success, url, filename }
 // ─────────────────────────────────────────────────────────
 app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
   try {
-    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress } = req.body || {};
+    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, dealFolderKey } = req.body || {};
 
     if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
       return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
@@ -512,7 +516,7 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
 
     const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const { url, filename } = await GenerateKpService.generateAndShareKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, origin },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, dealFolderKey, origin },
       priceList,
     );
 
@@ -529,14 +533,18 @@ app.post('/api/v1/generate-kp', requireApiKey, async (req, res) => {
 // headless Chrome (см. GeneratePdfService.js) на тех же сгруппированных
 // данных, что и Excel, поэтому суммы совпадают.
 //
-// Тело запроса: { sectorMappingIds, clientName, days, discountPct?, includeVat?, includeDetailedAddress? }
+// Тело запроса: { sectorMappingIds, clientName, days, discountPct?, includeVat?, includeDetailedAddress?, introText?, dealFolderKey? }
+// introText — необязательный, переопределяет стандартный абзац "Благодарим
+// вас..." на обложке; пусто/не передано — используется дефолтный текст.
+// dealFolderKey — см. комментарий у /api/v1/generate-kp, тот же смысл:
+// PDF ложится в ту же папку сделки, что и Excel.
 // Ответ: { success, url, filename }
 // Требует установленный на сервере Chrome/Chromium — путь задаётся
 // переменной окружения CHROME_EXECUTABLE_PATH.
 // ─────────────────────────────────────────────────────────
 app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
   try {
-    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt } = req.body || {};
+    const { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt, introText, dealFolderKey } = req.body || {};
 
     if (!Array.isArray(sectorMappingIds) || sectorMappingIds.length === 0) {
       return res.status(400).json({ success: false, message: 'sectorMappingIds обязателен и не должен быть пустым' });
@@ -550,7 +558,7 @@ app.post('/api/v1/generate-kp-pdf', requireApiKey, async (req, res) => {
 
     const origin = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
     const { url, filename } = await GeneratePdfService.generateAndSharePdfKp(
-      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt, origin },
+      { sectorMappingIds, clientName, days, discountPct, includeVat, includeDetailedAddress, managerName, managerPhoneExt, introText, dealFolderKey, origin },
       priceList,
     );
 

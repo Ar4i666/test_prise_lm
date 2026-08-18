@@ -23,3 +23,4 @@ public/uploads/*
 # локальный тестовый стенд — не часть продукта, только для разработки
 local-test-server.js
 local-price-list.json
+local-house-coords.json

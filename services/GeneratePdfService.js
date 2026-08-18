@@ -3,7 +3,13 @@ const fs = require('fs');
 const puppeteer = require('puppeteer-core');
 const { buildGroups, createMapShareLink } = require('./GenerateKpService');
 const { localDb } = require('../config/database');
-const { uploadFileToNextcloud, createPublicShareLink } = require('./nextcloud');
+const { uploadFileToNextcloud, createPublicShareLink, getOrCreateFolderShareLink } = require('./nextcloud');
+
+// См. тот же хелпер в GenerateKpService.js — держим их идентичными,
+// не выносил в общий модуль ради минимального диффа.
+function safeFolderKey(key) {
+  return String(key).replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 100);
+}
 
 // ─────────────────────────────────────────────────────────
 // Серверная генерация PDF-сметы. Сознательно НЕ переиспользует
@@ -77,8 +83,12 @@ function sectorMetrics(sec, days, discount, includeVat) {
   return { objects, monitors: sec.monitors, units, shows, sum };
 }
 
+const DEFAULT_INTRO_TEXT = 'Благодарим вас за проявленный интерес к нашей рекламной сети. Наша компания предлагает '
+  + 'размещение рекламных видеоматериалов на мониторах в лифтовых холлах и внутри лифтов в жилых комплексах '
+  + 'бизнес- и премиум-класса. Ниже представлена сводная смета по выбранным секторам:';
+
 function buildCoverPage(opts, groups, letterhead, logo) {
-  const { clientName, days, discountPct, includeVat, managerName, managerPhoneExt, mapUrl } = opts;
+  const { clientName, days, discountPct, includeVat, managerName, managerPhoneExt, mapUrl, introText } = opts;
   const discount = discountPct > 0 ? discountPct : 0;
   const today = new Date().toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const validity = new Date();
@@ -101,9 +111,7 @@ function buildCoverPage(opts, groups, letterhead, logo) {
   return `
   <div class="cover-page" style="background-image:url('${letterhead}')">
     <h1 class="cover-title">КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ</h1>
-    <p class="cover-intro">Благодарим вас за проявленный интерес к нашей рекламной сети. Наша компания предлагает
-      размещение рекламных видеоматериалов на мониторах в лифтовых холлах и внутри лифтов в жилых комплексах
-      бизнес- и премиум-класса. Ниже представлена сводная смета по выбранным секторам:</p>
+    <p class="cover-intro">${esc(introText && introText.trim() ? introText.trim() : DEFAULT_INTRO_TEXT)}</p>
 
     <div class="info-box">
       <div>
@@ -485,6 +493,7 @@ async function generateAndSharePdfKp(opts, priceList) {
     includeVat: !!opts.includeVat,
     managerName: opts.managerName,
     managerPhoneExt: opts.managerPhoneExt,
+    introText: opts.introText,
     mapUrl,
     groups,
     addressPrograms,
@@ -495,8 +504,11 @@ async function generateAndSharePdfKp(opts, priceList) {
   const safeClientName = (opts.clientName || 'Client').trim().replace(/[^\p{L}\p{N}_\-]+/gu, '_');
   const filename = `Smeta_LiftMedia_${safeClientName}_${Date.now()}.pdf`;
 
-  const remotePath = await uploadFileToNextcloud(filename, buffer);
-  const url = await createPublicShareLink(remotePath);
+  const subfolder = opts.dealFolderKey ? safeFolderKey(opts.dealFolderKey) : undefined;
+  const remotePath = await uploadFileToNextcloud(filename, buffer, subfolder);
+  const url = subfolder
+    ? await getOrCreateFolderShareLink(remotePath.slice(0, remotePath.lastIndexOf('/') + 1))
+    : await createPublicShareLink(remotePath);
 
   return { url, filename };
 }

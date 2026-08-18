@@ -4,7 +4,14 @@ const crypto = require('crypto');
 const ExcelJS = require('exceljs');
 const SmetaExcel = require('../public/smeta-excel.js');
 const { localDb } = require('../config/database');
-const { uploadFileToNextcloud, createPublicShareLink } = require('./nextcloud');
+const { uploadFileToNextcloud, createPublicShareLink, getOrCreateFolderShareLink } = require('./nextcloud');
+
+// Папка приводится к безопасному для WebDAV-пути виду — opportunityId это
+// UUID, но на всякий случай (ручные тесты, будущие вызовы) не доверяем
+// входу вслепую.
+function safeFolderKey(key) {
+  return String(key).replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 100);
+}
 
 // ─────────────────────────────────────────────────────────
 // Собирает КП (смета в Excel) из выбранных секторов и заливает в
@@ -142,6 +149,12 @@ function buildGroups(priceList, sectorKeys, includeDetailedAddress) {
  * @param {number} opts.discountPct
  * @param {boolean} opts.includeVat
  * @param {boolean} [opts.includeDetailedAddress]
+ * @param {string} [opts.dealFolderKey]  id сделки (CRM opportunityId) — если
+ *   задан, файл кладётся в свою подпапку внутри NEXTCLOUD_FOLDER, и
+ *   возвращается ссылка на ЭТУ ПАПКУ (переиспользуется между генерациями
+ *   Excel/PDF для одной сделки), а не на конкретный файл. Без него —
+ *   старое поведение (плоская папка, ссылка на файл), для обратной
+ *   совместимости со сторонними вызовами API.
  * @param {object[]} priceList  уже посчитанный HouseMappingService.generateFinalPriceList(sheetData)
  * @returns {Promise<{ url: string, filename: string }>}
  */
@@ -194,8 +207,11 @@ async function generateAndShareKp(opts, priceList) {
   const safeClientName = (opts.clientName || 'Client').trim().replace(/[^\p{L}\p{N}_\-]+/gu, '_');
   const filename = `Smeta_LiftMedia_${safeClientName}_${Date.now()}.xlsx`;
 
-  const remotePath = await uploadFileToNextcloud(filename, Buffer.from(buffer));
-  const url = await createPublicShareLink(remotePath);
+  const subfolder = opts.dealFolderKey ? safeFolderKey(opts.dealFolderKey) : undefined;
+  const remotePath = await uploadFileToNextcloud(filename, Buffer.from(buffer), subfolder);
+  const url = subfolder
+    ? await getOrCreateFolderShareLink(remotePath.slice(0, remotePath.lastIndexOf('/') + 1))
+    : await createPublicShareLink(remotePath);
 
   return { url, filename };
 }
